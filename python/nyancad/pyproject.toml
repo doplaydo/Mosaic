@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nyancad"
-version = "0.15.0"
+version = "0.17.1"
 description = "NyanCAD Python library for schematic editor with anywidget integration"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -25,7 +25,8 @@ classifiers = [
 dependencies = [
     "anywidget>=0.9.0",
     "traitlets",
-    "InSpice[vacask]",
+    "InSpice",
+    'vacask-bin>=0.3.0; platform_machine != "wasm32"',
     "holoviews",
 ]
 
@@ -44,7 +45,7 @@ include = ["nyancad*"]
 testpaths = ["tests"]
 
 [tool.bumpversion]
-current_version = "0.15.0"
+current_version = "0.17.1"
 commit = true
 tag = false
 allow_dirty = true
