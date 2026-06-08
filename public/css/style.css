@@ -699,10 +699,21 @@ html {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background-image: url(icons/Logo.svg);
-    background-repeat: no-repeat;
-    background-position: 15px 50%;
     padding-left: 65px;
+    position: relative;
+}
+
+.mosaic-container .menu::before {
+    content: '';
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 18px;
+    background-color: var(--color-text-strong);
+    -webkit-mask: url(icons/Logo.svg) no-repeat center / contain;
+    mask: url(icons/Logo.svg) no-repeat center / contain;
 }
 
 .mosaic-container .menu .primary {
