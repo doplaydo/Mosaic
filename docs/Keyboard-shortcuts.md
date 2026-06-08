@@ -21,31 +21,33 @@ Every action in Mosaic should have an easy to discover button and keyboard short
 
 # Keyboard
 
-* **c** place capacitor
-* **r** place resistor
-* **l** place inductor
-* **d** place diode
+## Device placement
+
 * **v** place voltage source
 * **i** place current source
-* **m** place N-channel MOSFET
-* **shift+m** place P-channel MOSFET
-* **b** place NPN BJT
-* **shift+b** place PNP BJT
-* **x** place subcircuit
 * **p** place named port
 * **shift+p** place power supply port
 * **g** place ground node
-* **t** place [annotations]
-* **shift+t** place net label
-* **del** delete selected item
+* **t** place wire label
+* **shift+t** place text area
+
+## Tools
+
 * **w** select wire tool
 * **e** select eraser tool
 * **space** momentarily select pan tool
 * **esc** cancel action/tool
-* **s** spin selected element clockwise
-* **shift+s** spin selected element counter-clockwise
-* **f** flip selected element horizontally
-* **shift+f** flip selected element vertically
+
+## Transforms
+
+* **r** rotate selected element clockwise
+* **shift+r** rotate selected element counter-clockwise
+* **x** mirror about X-axis (reflect top/bottom)
+* **y** mirror about Y-axis (reflect left/right)
+* **del** delete selected item
+
+## Clipboard & Undo
+
 * **ctrl+c** copy selected elements
 * **ctrl+x** cut selected elements
 * **ctrl+v** paste elements

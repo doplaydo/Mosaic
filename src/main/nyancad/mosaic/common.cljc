@@ -1056,21 +1056,17 @@
     [:h3 "Components"]
     [:div.components-row
      [:div.component-item
-      [device-icon "resistor"]
-      [:kbd "R"]
-      [:span.label "Resistor"]]
+      [device-icon "port"]
+      [:kbd "P"]
+      [:span.label "Port"]]
      [:div.component-item
-      [device-icon "capacitor"]
-      [:kbd "C"]
-      [:span.label "Capacitor"]]
+      [device-icon "ground"]
+      [:kbd "G"]
+      [:span.label "Ground"]]
      [:div.component-item
-      [device-icon "inductor"]
-      [:kbd "L"]
-      [:span.label "Inductor"]]
-     [:div.component-item
-      [device-icon "diode"]
-      [:kbd "D"]
-      [:span.label "Diode"]]
+      [device-icon "supply"]
+      [:kbd "Shift+P"]
+      [:span.label "Supply"]]
      [:div.component-item
       [device-icon "vsource"]
       [:kbd "V"]
@@ -1080,22 +1076,14 @@
       [:kbd "I"]
       [:span.label "Isource"]]
      [:div.component-item
-      [device-icon "nmos"]
-      [:kbd "M"]
-      [:span.label "MOSFET"]]
+      [namei]
+      [:kbd "T"]
+      [:span.label "Label"]]
      [:div.component-item
-      [device-icon "npn"]
-      [:kbd "B"]
-      [:span.label "BJT"]]
-     [:div.component-item
-      [chip]
-      [:kbd "X"]
-      [:span.label "Subcircuit"]]
-     [:div.component-item
-      [device-icon "port"]
-      [:kbd "P"]
-      [:span.label "Port"]]]
-    [:p.hint "Long-press button or Shift+key for alternatives (PMOS, PNP, etc.)"]]
+      [text]
+      [:kbd "Shift+T"]
+      [:span.label "Text"]]]
+    [:p.hint "More components available in the device tray."]]
 
    ;; Two column layout for tools
    [:div.shortcut-grid
@@ -1104,10 +1092,10 @@
       [[wire] "W" "Wire"]
       [[eraser] "E" "Eraser"]
       [[move] "Space" "Pan (hold)"]
-      [[rotatecw] "S" "Spin CW"]
-      [[rotateccw] "Shift+S" "Spin CCW"]
-      [[mirror-vertical] "F" "Flip X"]
-      [[mirror-horizontal] "Shift+F" "Flip Y"]
+      [[rotatecw] "R" "Rotate CW"]
+      [[rotateccw] "Shift+R" "Rotate CCW"]
+      [[mirror-vertical] "X" "Mirror X-axis"]
+      [[mirror-horizontal] "Y" "Mirror Y-axis"]
       [[delete] "Del" "Delete"]
       [[zoom-in] "Scroll" "Zoom"]]]
 
@@ -1117,12 +1105,10 @@
       [[copyi] "Ctrl+C" "Copy"]
       [[cuti] "Ctrl+X" "Cut"]
       [[pastei] "Ctrl+V" "Paste"]
-      [[library] "" "Library Manager"]
-      [[history] "" "Snapshot History"]
-      [[external-link] "" "Pop Out Notebook"]
-      [[help] "" "Keyboard Shortcuts"]
-      [[sun-icon] "" "Toggle Theme"]
-      [[login] "" "Account"]]]]
+      [[simulate] "" "SPICE Simulation"]
+      [[photonic-icon] "" "SAX Simulation"]
+      [[sync-active] "" "Open in Livewire"]
+      [[help] "" "Help"]]]]
 
    [:div.actions
     [:button

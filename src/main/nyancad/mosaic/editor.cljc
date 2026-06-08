@@ -2330,16 +2330,16 @@
        [[cm/probe] ::probe "Probe nodes in a connected simulator"]]
       nil nil cancel]]
     [:div.toolbar-group
-     [:a {:title "Rotate selected clockwise [s]"
+     [:a {:title "Rotate selected clockwise [r]"
           :on-click (fn [_] (transform-selected #(.rotate % 90)))}
       [cm/rotatecw]]
-     [:a {:title "Rotate selected counter-clockwise [shift+s]"
+     [:a {:title "Rotate selected counter-clockwise [shift+r]"
           :on-click (fn [_] (transform-selected #(.rotate % -90)))}
       [cm/rotateccw]]
-     [:a {:title "Mirror selected horizontal [shift+f]"
+     [:a {:title "Mirror about X-axis [x]"
           :on-click (fn [_] (transform-selected #(.flipY %)))}
       [cm/mirror-horizontal]]
-     [:a {:title "Mirror selected vertical [f]"
+     [:a {:title "Mirror about Y-axis [y]"
           :on-click (fn [_] (transform-selected #(.flipX %)))}
       [cm/mirror-vertical]]
      [:a {:title "Delete selected [del]"
@@ -2412,15 +2412,15 @@
               :on-pointer-up #(add-device "isource" (cm/viewbox-coord %))}
      [cm/device-icon "isource"]]]
    [variant-tray
-    [:button {:title "Add resistor [r]"
+    [:button {:title "Add resistor"
               :class (device-active "resistor")
               :on-pointer-up #(add-device "resistor" (cm/viewbox-coord %))}
      [cm/device-icon "resistor"]]
-    [:button {:title "Add inductor [l]"
+    [:button {:title "Add inductor"
               :class (device-active "inductor")
               :on-pointer-up #(add-device "inductor" (cm/viewbox-coord %))}
      [cm/device-icon "inductor"]]
-    [:button {:title "Add capacitor [c]"
+    [:button {:title "Add capacitor"
               :class (device-active "capacitor")
               :on-pointer-up #(add-device "capacitor" (cm/viewbox-coord %))}
      [cm/device-icon "capacitor"]]]])
@@ -2600,18 +2600,8 @@
    [cm/contextmenu]
    [cm/modal]])
 
-(def shortcuts {#{:c} #(add-device "capacitor" (::mouse @ui))
-                #{:r} #(add-device "resistor" (::mouse @ui))
-                #{:l} #(add-device "inductor" (::mouse @ui))
-                #{:d} #(add-device "diode" (::mouse @ui))
-                #{:v} #(add-device "vsource" (::mouse @ui))
+(def shortcuts {#{:v} #(add-device "vsource" (::mouse @ui))
                 #{:i} #(add-device "isource" (::mouse @ui))
-                #{:m} #(add-device "nmos" (::mouse @ui))
-                #{:shift :m} #(add-device "pmos" (::mouse @ui))
-                #{:b} #(add-device "npn" (::mouse @ui))
-                #{:shift :b} #(add-device "pnp" (::mouse @ui))
-                #{:x} #(add-device "ckt" (::mouse @ui))
-                #{:a} #(add-device "amp" (::mouse @ui))
                 #{:p} #(add-device "port" (::mouse @ui))
                 #{:g} #(add-gnd (::mouse @ui))
                 #{:shift :p} #(add-supply (::mouse @ui))
@@ -2623,10 +2613,10 @@
                 #{:e} #(cancel ::eraser)
                 #{:escape} cancel
                 #{(keyword " ")} (fn [] (swap! ui #(assoc % ::tool (::prev-tool %))))
-                #{:s}        (fn [_] (transform-selected #(.rotate % 90)))
-                #{:shift :s} (fn [_] (transform-selected #(.rotate % -90)))
-                #{:shift :f} (fn [_] (transform-selected #(.flipY %)))
-                #{:f}        (fn [_] (transform-selected #(.flipX %)))
+                #{:r}        (fn [_] (transform-selected #(.rotate % 90)))
+                #{:shift :r} (fn [_] (transform-selected #(.rotate % -90)))
+                #{:x}        (fn [_] (transform-selected #(.flipY %)))
+                #{:y}        (fn [_] (transform-selected #(.flipX %)))
                 #{:control :c} copy
                 #{:control :x} cut
                 #{:control :v} paste
