@@ -147,7 +147,7 @@ On tagged releases, the workflow automatically:
 ## Fork Status
 
 This directory is a fork of [NyanCAD/Mosaic](https://github.com/NyanCAD/Mosaic),
-maintained at [gdsfactory/Mosaic](https://github.com/gdsfactory/Mosaic) and
+maintained at [doplaydo/Mosaic](https://github.com/doplaydo/Mosaic) and
 vendored into GDSFactory+ via [git subrepo](https://github.com/ingydotnet/git-subrepo).
 The tracking state lives in `.gitrepo`.
 
@@ -200,9 +200,9 @@ local commit whose mosaic changes are already present on upstream `main`.
 
 To incorporate changes from the original NyanCAD/Mosaic into the fork:
 
-1. In a checkout of gdsfactory/Mosaic, add NyanCAD as a remote and merge:
+1. In a checkout of doplaydo/Mosaic, add NyanCAD as a remote and merge:
    ```bash
-   cd /path/to/gdsfactory/Mosaic
+   cd /path/to/doplaydo/Mosaic
    git remote add nyancat git@github.com:NyanCAD/Mosaic.git
    git fetch nyancat
    git merge nyancat/main
