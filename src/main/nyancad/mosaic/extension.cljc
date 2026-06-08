@@ -407,8 +407,7 @@
           basename (uri-basename (.-uri document) ".nyancir")
           disposables #js[]
           nyanlib-uri (if ws-root
-                        #?(:gfp (uri-join ws-root "build" "models.nyanlib")
-                           :default (uri-join ws-root "models.nyanlib"))
+                        (uri-join ws-root "build" "models.nyanlib")
                         (uri-join doc-uri "models.nyanlib"))]
       (js/Promise.
         (fn [resolve reject]

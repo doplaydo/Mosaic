@@ -144,11 +144,22 @@ On tagged releases, the workflow automatically:
 - Publishes to PyPI
 - Deploys nyancad-server to production
 
-## Git Subrepo (upstream sync)
+## Fork Status
 
-This directory is vendored from [NyanCAD/Mosaic](https://github.com/NyanCAD/Mosaic)
-using [git subrepo](https://github.com/ingydotnet/git-subrepo). The tracking state
-lives in `.gitrepo`.
+This directory is a fork of [NyanCAD/Mosaic](https://github.com/NyanCAD/Mosaic),
+maintained at [gdsfactory/Mosaic](https://github.com/gdsfactory/Mosaic) and
+vendored into GDSFactory+ via [git subrepo](https://github.com/ingydotnet/git-subrepo).
+The tracking state lives in `.gitrepo`.
+
+### Workflow
+
+1. Make changes in this vendored copy (`frontend/mosaic/`) inside gdsfactoryplus.
+2. Push to the gdsfactory fork:
+   ```bash
+   git subrepo push frontend/mosaic           # direct push to main
+   git subrepo push frontend/mosaic -b <name> # push to named branch for PR
+   ```
+3. For changes that benefit upstream, cherry-pick or PR them to NyanCAD/Mosaic separately.
 
 ### Known issue: squash merges invalidate parent hash
 
@@ -185,18 +196,22 @@ Note: the heuristic above finds the parent of the last commit that touched the
 after that point, you may need to manually identify the correct parent — the last
 local commit whose mosaic changes are already present on upstream `main`.
 
-### Pushing changes upstream
+### Pulling upstream changes from NyanCAD
 
-```bash
-git subrepo push frontend/mosaic           # direct push to main
-git subrepo push frontend/mosaic -b <name> # push to named branch for PR
-```
+To incorporate changes from the original NyanCAD/Mosaic into the fork:
 
-### Pulling upstream changes
-
-```bash
-git subrepo pull frontend/mosaic
-```
+1. In a checkout of gdsfactory/Mosaic, add NyanCAD as a remote and merge:
+   ```bash
+   cd /path/to/gdsfactory/Mosaic
+   git remote add nyancat git@github.com:NyanCAD/Mosaic.git
+   git fetch nyancat
+   git merge nyancat/main
+   git push origin main
+   ```
+2. Then pull the updated fork into gdsfactoryplus:
+   ```bash
+   git subrepo pull frontend/mosaic
+   ```
 
 ## Policy on AI
 
