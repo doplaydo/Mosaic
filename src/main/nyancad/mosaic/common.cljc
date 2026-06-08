@@ -126,6 +126,7 @@
                                     (when on-change (on-change)))}
     [plus-circle] [plus-circle-fill] " Add"]])
 
+;; @tags property editing
 (defn recursive-editor
   "Render editors for nested data. Each field is either a leaf or a list of maps.
    fields: [{:name :tooltip :type :children ...}]
@@ -375,6 +376,7 @@
       (into {} (for [p (:props model-def) :when (and (:name p) (some? (:default p)))]
                  [(keyword (:name p)) (:default p)])))))
 
+;; @tags property editing
 (defn schema->field-type
   "Convert a nyanlib prop (carrying optional :schema from JSON Schema) into a
    field descriptor suitable for recursive-editor / leaf-editor."
@@ -933,11 +935,32 @@
 
 (defonce context-content (r/atom {:x 0 :y 0 :body nil}))
 
+(defn- clamp-context-menu!
+  "Slide the popup back inside the viewport (8px margin) so it never runs off
+   the bottom/right edge. Mirrors Livewire's positionMenu. The popup's own
+   max-height keeps it shorter than the viewport, so clamping the position is
+   enough — no taller-than-screen case to handle here."
+  [el x y]
+  (when el
+    (let [vw (.-innerWidth js/window)
+          vh (.-innerHeight js/window)
+          rect (.getBoundingClientRect el)
+          w (.-width rect)
+          h (.-height rect)
+          left (max 8 (min x (- vw w 8)))
+          top (max 8 (min y (- vh h 8)))]
+      (set! (.. el -style -left) (str left "px"))
+      (set! (.. el -style -top) (str top "px")))))
+
 (defn contextmenu []
   (let [{:keys [:x :y :body]} @context-content]
+    ;; Key on [x y] so React remounts the popup on each open, firing :ref to
+    ;; re-measure and clamp it into the viewport.
+    ^{:key [x y]}
     [:div.contextmenu.window
-     {:style {:top y, :left, x}
-      :class (if body "visible" "hidden")}
+     {:class (if body "visible" "hidden")
+      :style {:top y :left x}
+      :ref (fn [el] (clamp-context-menu! el x y))}
      body]))
 
 (defn prompt [text cb]

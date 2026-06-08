@@ -243,9 +243,12 @@ html {
     margin-left: 1em;
 }
 
+/* Positioned at the cursor (top/left set inline) then clamped into the viewport
+   in JS by clamp-context-menu! so it never runs off the bottom/right edge. */
 .mosaic-app .contextmenu {
-    position: absolute;
+    position: fixed;
     z-index: 1000;
+    margin: 0;
 }
 
 .mosaic-app .contextmenu ul {
@@ -793,7 +796,8 @@ html {
     box-sizing: border-box;
 }
 
-.mosaic-container .sidebar h1 {
+.mosaic-container .sidebar h1,
+.mosaic-app .device-props h1 {
     background-color: var(--color-accent);
     color: var(--color-accent-text);
     margin: 0;
@@ -805,8 +809,25 @@ html {
     letter-spacing: 0.7px;
 }
 
-.mosaic-container .sidebar .properties {
+.mosaic-container .sidebar .properties,
+.mosaic-app .device-props .properties {
     padding: 20px;
+}
+
+/* Device props rendered inside the right-click context-menu popup.
+   The popup reuses the sidebar's props editor, so size/scroll it like the
+   old sidebar and neutralize the default .window padding (it would double up
+   with .properties' own padding). */
+.mosaic-app .contextmenu.window:has(.device-props) {
+    padding: 0;
+    overflow: hidden;
+}
+
+.mosaic-app .device-props {
+    width: 300px;
+    max-height: calc(100vh - 50px);
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 
 .mosaic-container .chrome a,

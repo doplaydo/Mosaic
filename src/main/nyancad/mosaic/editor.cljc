@@ -121,13 +121,14 @@
   (when-let [st (cm/redo undotree)]
     (restore st)))
 
-(declare drag-start drag-end eraser-drag models on-pointer-down-element on-pointer-move-element on-pointer-up-bg double-click device-template circuit-designator)
+(declare drag-start drag-end eraser-drag models on-pointer-down-element on-pointer-move-element on-pointer-up-bg double-click device-template circuit-designator device-context-menu)
 
 (defn device [size k v & elements]
   (assert (js/isFinite size))
   (into [:g.device {:on-pointer-down (fn [e] (on-pointer-down-element k e))
                     :on-pointer-move (fn [e] (on-pointer-move-element k e))
                     :on-pointer-up on-pointer-up-bg
+                    :on-context-menu (fn [e] (device-context-menu k e))
                     :style {:transform (.toString (.translate (transform (:transform v cm/IV)) (* (:x v) grid-size) (* (:y v) grid-size)))
                             :transform-origin (str (* (+ (:x v) (/ size 2)) grid-size) "px "
                                                    (* (+ (:y v) (/ size 2)) grid-size) "px")}
@@ -1799,6 +1800,7 @@
 ;; Pointer event handlers for touch/stylus support
 
 (defn on-pointer-down-bg [e]
+  (cm/clear-context-menu)
   (let [id (.-pointerId e)
         entry {:x (.-clientX e) :y (.-clientY e)}]
     ;; Update double-click tracking state (consumed by element handler)
@@ -1856,6 +1858,7 @@
 
 (defn on-pointer-down-element [k e]
   (.stopPropagation e)
+  (cm/clear-context-menu)
   (let [id (.-pointerId e)
         entry {:x (.-clientX e) :y (.-clientY e)}
         is-dblclick (and (.-isPrimary e) (check-double-click e))]
@@ -2143,6 +2146,7 @@
                                            (reset! cm/modal-content nil))
                             :disabled (nil? @selected)} "Select"]]]))))
 
+;; @tags property editing
 (defn deviceprops [key]
   (let [props (r/cursor schematic [key :props])
         device-type (r/cursor schematic [key :type])
@@ -2222,6 +2226,14 @@
            (r/cursor schematic [key])
            #(or (:template %) effective-default)
            (fn [st v] (swap! st assoc :template v) (post-action!))]]]))))
+
+;; @tags property editing
+(defn device-context-menu [k e]
+  (.preventDefault e)
+  (.stopPropagation e)
+  (swap! ui assoc ::selected #{k})        ; highlight the right-clicked device
+  (cm/set-context-menu (.-clientX e) (.-clientY e)
+                       [:div.device-props [deviceprops k]]))
 
 (defn copy []
   (let [sel @selected
@@ -2554,10 +2566,6 @@
     [:div.content
      [:div.devicetray.chrome
       [device-tray]]
-     (when-let [sel (seq @selected)]
-       [:div.sidebar
-        (doall (for [key sel]
-                 ^{:key key} [deviceprops key]))])
      [:svg.mosaic-canvas (merge (theme-attrs)
                           {:xmlns "http://www.w3.org/2000/svg"
                            :height "100%"
