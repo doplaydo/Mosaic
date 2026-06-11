@@ -69,22 +69,23 @@
   nil)
 
 (defn secondary-menu-items
-  "VSCode secondary menu: simulate, open library manager (upstream), switch to Livewire (gfp)."
+  "VSCode secondary menu: simulate (toolbar-group dropdown), switch to Livewire."
   [_ui]
   [:<>
-   [:a {:title "Run SPICE simulation"
-        :on-click #(.postMessage vscode
-                     #js{:type "start-simulation"})}
-    [cm/simulate]]
-   [:a {:title "Run SAX simulation"
-        :on-click #(.postMessage vscode
-                     #js{:type "start-sax-simulation"})}
-    [cm/photonic-icon]]
+   [:div.toolbar-group
+    [:a {:title "Simulate (SAX)"
+         :on-click #(.postMessage vscode
+                      #js{:type "open-sax-simulation"})}
+     [cm/rocket-icon]]
+    [:a {:title "SPICE Simulation (marimo, deprecated)"
+         :on-click #(.postMessage vscode
+                      #js{:type "start-simulation"})}
+     [cm/fire-icon]]]
    [:a {:title "Open in Livewire layout editor"
         :on-click #(.postMessage vscode
                      #js{:type "switchEditor"
                          :viewType "gdsfactoryplus.livewireNyancirEditor"})}
-    [cm/sync-active]]])
+    [cm/shuffle-icon]]])
 
 (defn init-extra!
   "Set up get-state handler for VS Code webview."

@@ -233,9 +233,15 @@
           (start-marimo! (.-fsPath doc-file-uri) "spice"))
 
         ;; Start SAX simulation — spawn marimo sidecar (local file:// only)
+        ;; DEPRECATED: use "open-sax-simulation" instead (opens the React panel)
         "start-sax-simulation"
         (when (and doc-file-uri (= "file" (.-scheme doc-file-uri)))
           (start-marimo! (.-fsPath doc-file-uri) "sax"))
+
+        ;; Open the SAX simulation panel (React webview)
+        "open-sax-simulation"
+        (when (and doc-file-uri (= "file" (.-scheme doc-file-uri)))
+          (.. vscode/commands (executeCommand "gdsfactoryplus.openSimulation" (.-fsPath doc-file-uri))))
 
         ;; Unknown — ignore
         nil))))

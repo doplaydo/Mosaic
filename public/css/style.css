@@ -1020,7 +1020,8 @@ g.toolstaging g.device {
 
 /* Narrow + mouse: toolbar groups collapse to one-button dropdowns */
 @media (max-width: 1400px) and (hover: hover) {
-    .mosaic-container .menu .primary {
+    .mosaic-container .menu .primary,
+    .mosaic-container .menu .secondary {
         height: calc(1em + 1em + 1.5em);
         overflow: visible;
         align-items: flex-start;
