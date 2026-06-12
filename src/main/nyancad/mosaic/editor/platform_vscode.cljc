@@ -85,7 +85,7 @@
         :on-click #(.postMessage vscode
                      #js{:type "switchEditor"
                          :viewType "gdsfactoryplus.livewireNyancirEditor"})}
-    [cm/shuffle-icon]]])
+    [cm/layout-icon]]])
 
 (defn init-extra!
   "Set up get-state handler for VS Code webview."

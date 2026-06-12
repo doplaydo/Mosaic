@@ -625,7 +625,6 @@
 (def photonic-icon (r/adapt-react-class icons/Lightbulb))
 (def rocket-icon (r/adapt-react-class icons/RocketTakeoff))
 (def fire-icon (r/adapt-react-class icons/Fire))
-(def shuffle-icon (r/adapt-react-class icons/Shuffle))
 (def search (r/adapt-react-class icons/Search))
 (def exclamation-triangle (r/adapt-react-class icons/ExclamationTriangleFill))
 (def exclamation-diamond (r/adapt-react-class icons/ExclamationDiamondFill))
@@ -638,6 +637,21 @@
 (def sun-icon (r/adapt-react-class icons/SunFill))
 (def moon-icon (r/adapt-react-class icons/MoonFill))
 (def upload (r/adapt-react-class icons/Upload))
+
+(defn layout-icon
+  "Layout glyph: a device cell with a metal route (metal 1 in from top → via at
+  the bend → metal 2 out to the right) overshooting the cell, the via cut clean
+  through. Custom inline SVG, drawn in currentColor. Used on the VS Code
+  switch-to-Livewire button. viewBox is tightened to the artwork so the
+  cell + overhang fill the icon box."
+  []
+  [:svg {:xmlns "http://www.w3.org/2000/svg" :width "1em" :height "1em"
+         :viewBox "4 2 18 18" :fill "currentColor"}
+   [:path {:d "M4 4 H20 V20 H4 Z M8.5 8.5 H12.5 V12.5 H8.5 Z"
+           :fill-opacity "0.32" :fill-rule "evenodd"}]
+   [:rect {:x 8.5 :y 2 :width 4 :height 5.5}]
+   [:rect {:x 13.5 :y 8.5 :width 8.5 :height 4}]
+   [:path {:d "M7 7 H14 V14 H7 Z M8.5 8.5 H12.5 V12.5 H8.5 Z" :fill-rule "evenodd"}]])
 
 (defn radiobuttons
   ([cursor m] (radiobuttons cursor m nil nil nil))
