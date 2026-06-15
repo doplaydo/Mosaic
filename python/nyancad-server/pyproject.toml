@@ -34,7 +34,6 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=7.0"]
-sax = ["sax>=0.18.0", "kfnetlist>=0.1.4"]
 
 [project.urls]
 Homepage = "https://github.com/NyanCAD/Mosaic"
@@ -48,7 +47,7 @@ where = ["."]
 include = ["nyancad_server*"]
 
 [tool.setuptools.package-data]
-nyancad_server = ["public/**/*", "notebook.py", "notebook_file.py", "notebook_sax.py"]
+nyancad_server = ["public/**/*", "notebook.py", "notebook_file.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
