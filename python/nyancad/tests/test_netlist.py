@@ -12,6 +12,7 @@ from nyancad.netlist import (
     NyanCircuit,
     SchemId,
     _eval_params,
+    _parse_spice_value,
     _select_corner,
     bare_id,
     default_port_order,
@@ -217,6 +218,26 @@ class TestSelectModelEntry:
         entry = self._select(model_def, "NgSpice")
         # Even though sim doesn't match, it's the only SPICE entry — use it
         assert entry["implementation"] == "Xyce"
+
+    def test_vacask_selects_spectre_entry(self, spice_model_def):
+        entry = self._select(spice_model_def, "VACASK")
+        assert entry["name"] == "nmos_vacask"
+
+    def test_vacask_ignores_spice_entries(self):
+        model_def = {
+            "models": [
+                {"language": "spice", "implementation": "NgSpice", "name": "ng"},
+            ]
+        }
+        assert self._select(model_def, "VACASK") is None
+
+    def test_ngspice_ignores_spectre_entries(self):
+        model_def = {
+            "models": [
+                {"language": "spectre", "implementation": "VACASK", "name": "v"},
+            ]
+        }
+        assert self._select(model_def, "NgSpice") is None
 
 
 # ---------------------------------------------------------------------------
@@ -868,3 +889,443 @@ class TestPopulateFromNyancad:
         assert "R2" in spice.replace(":", "_")
         for net in ("a", "b", "c"):
             assert net in spice
+
+
+# ---------------------------------------------------------------------------
+# kfnetlist_from_nyancad — direct Mosaic nets to kfnetlist wire format
+# ---------------------------------------------------------------------------
+
+
+def _kf_data(netlist):
+    """Assert the SAX path returns a kfnetlist object, then dump it."""
+    kfnetlist = pytest.importorskip("kfnetlist")
+    assert isinstance(netlist, kfnetlist.Netlist)
+    return netlist.to_dict()
+
+
+class TestKfNetlistFromNyancad:
+    """The SAX notebook path should use Mosaic `nets` directly and avoid
+    requiring layout fields or DSchematic conversion.
+    """
+
+    def test_builds_kfnetlist_from_inline_nets(self):
+        schem = {
+            "top": {
+                "top:IN": {
+                    "_id": "top:IN",
+                    "type": "port",
+                    "name": "in",
+                    "nets": {"P": "n_in"},
+                },
+                "top:OUT": {
+                    "_id": "top:OUT",
+                    "type": "port",
+                    "name": "out",
+                    "nets": {"P": "n_out"},
+                },
+                "top_S1": {
+                    "_id": "ignored-id",
+                    "type": "straight",
+                    "name": "S1",
+                    "model": "straight",
+                    "nets": {"o1": "n_in", "o2": "n_mid"},
+                },
+                "top_S2": {
+                    "_id": "top_S2",
+                    "type": "straight",
+                    "name": "S2",
+                    "model": "straight",
+                    "nets": {"o1": "n_mid", "o2": "n_out"},
+                },
+            },
+            "models": {
+                "models:straight": {"name": "straight", "ports": []},
+            },
+        }
+
+        netlist = kfnetlist_from_nyancad("top", schem)
+        data = _kf_data(netlist)
+
+        assert data["instances"] == {
+            "top_S1": {
+                "kcl": "PDK",
+                "component": "straight",
+                "settings": {},
+                "array": {"na": 1, "nb": 1},
+            },
+            "top_S2": {
+                "kcl": "PDK",
+                "component": "straight",
+                "settings": {},
+                "array": {"na": 1, "nb": 1},
+            },
+        }
+        assert {"name": "in"} in data["nets"][0]
+        assert {"instance": "top_S1", "port": "o1"} in data["nets"][0]
+        assert [
+            {"instance": "top_S1", "port": "o2"},
+            {"instance": "top_S2", "port": "o1"},
+        ] in data["nets"]
+        assert [
+            {"name": "out"},
+            {"instance": "top_S2", "port": "o2"},
+        ] in data["nets"]
+
+    def test_builds_kfnetlist_ports_from_port_named_nets(self):
+        schem = {
+            "top": {
+                "top_S1": {
+                    "type": "straight",
+                    "model": "straight",
+                    "nets": {"o1": "P1", "o2": "P2"},
+                },
+                "top:P1": {
+                    "type": "port",
+                    "name": "P1",
+                },
+                "top:P2": {
+                    "type": "port",
+                    "name": "P2",
+                },
+            },
+            "models": {
+                "models:straight": {"name": "straight", "ports": []},
+            },
+        }
+
+        netlist = kfnetlist_from_nyancad("top", schem)
+        data = _kf_data(netlist)
+
+        assert [{"name": "P1"}, {"instance": "top_S1", "port": "o1"}] in data["nets"]
+        assert [{"name": "P2"}, {"instance": "top_S1", "port": "o2"}] in data["nets"]
+
+    def test_layout_only_port_resolves_via_attached_port(self):
+        """A Livewire layout-only port (``attached_port`` present, ``nets``
+        absent) must join its attached instance port on a synthesized net,
+        rather than being mis-bucketed under a net named after itself.
+        """
+        schem = {
+            "top": {
+                "top_S1": {
+                    "type": "straight",
+                    "model": "straight",
+                    "nets": {"o2": "n_mid"},
+                },
+                "in": {
+                    "type": "port",
+                    "name": "in",
+                    "attached_port": {"component_id": "top_S1", "port_name": "o1"},
+                },
+            },
+            "models": {
+                "models:straight": {"name": "straight", "ports": []},
+            },
+        }
+
+        netlist = kfnetlist_from_nyancad("top", schem)
+        data = _kf_data(netlist)
+
+        assert [
+            {"name": "in"},
+            {"instance": "top_S1", "port": "o1"},
+        ] in data["nets"]
+
+    def test_uses_model_name_without_needing_layout(self):
+        schem = {
+            "top": {
+                "uuid_a": {
+                    "type": "component",
+                    "model": "gf.components.straight",
+                    "nets": {"o1": "a"},
+                    "props": {"length": 10.0},
+                }
+            },
+            "models": {
+                "models:gf.components.straight": {
+                    "name": "straight",
+                    "ports": [{"name": "o1"}],
+                }
+            },
+        }
+
+        netlist = kfnetlist_from_nyancad("top", schem)
+        data = _kf_data(netlist)
+
+        assert data["instances"]["uuid_a"] == {
+            "kcl": "PDK",
+            "component": "straight",
+            "settings": {"length": 10.0},
+            "array": {"na": 1, "nb": 1},
+        }
+
+    def test_missing_model_metadata_is_an_error(self):
+        schem = {
+            "top": {
+                "uuid_a": {
+                    "type": "component",
+                    "model": "gf.components.straight",
+                    "nets": {"o1": "a"},
+                },
+            },
+            "models": {},
+        }
+
+        with pytest.raises(ValueError, match="Model metadata missing"):
+            kfnetlist_from_nyancad("top", schem)
+
+    def test_missing_model_name_is_an_error(self):
+        schem = {
+            "top": {
+                "uuid_a": {
+                    "type": "component",
+                    "model": "gf.components.straight",
+                    "nets": {"o1": "a"},
+                },
+            },
+            "models": {
+                "models:gf.components.straight": {"ports": []},
+            },
+        }
+
+        with pytest.raises(ValueError, match="has no name"):
+            kfnetlist_from_nyancad("top", schem)
+
+    def test_recursive_netlist_uses_subcircuit_component_name(self):
+        schem = {
+            "top": {
+                "top_U1": {
+                    "_id": "top_U1",
+                    "type": "ckt",
+                    "name": "U1",
+                    "model": "sub",
+                    "nets": {"in": "n_in", "out": "n_out"},
+                }
+            },
+            "sub": {
+                "sub_S1": {
+                    "_id": "sub_S1",
+                    "type": "straight",
+                    "name": "S1",
+                    "model": "straight",
+                    "nets": {"o1": "inner_in", "o2": "inner_out"},
+                },
+                "sub:IN": {
+                    "_id": "sub:IN",
+                    "type": "port",
+                    "name": "in",
+                    "nets": {"P": "inner_in"},
+                },
+                "sub:OUT": {
+                    "_id": "sub:OUT",
+                    "type": "port",
+                    "name": "out",
+                    "nets": {"P": "inner_out"},
+                },
+            },
+            "models": {
+                "models:sub": {"name": "sub_model", "ports": []},
+                "models:straight": {"name": "straight", "ports": []},
+            },
+        }
+
+        recnet = recursive_kfnetlist_from_nyancad("top", schem)
+
+        assert set(recnet) == {"top", "sub_model"}
+        assert (
+            _kf_data(recnet["top"])["instances"]["top_U1"]["component"] == "sub_model"
+        )
+        assert (
+            _kf_data(recnet["sub_model"])["instances"]["sub_S1"]["component"]
+            == "straight"
+        )
+
+    def test_recursive_netlist_returns_kfnetlist_objects(self):
+        schem = {
+            "top": {
+                "top:IN": {
+                    "_id": "top:IN",
+                    "type": "port",
+                    "name": "in",
+                    "nets": {"P": "n"},
+                },
+                "top_S1": {
+                    "_id": "top_S1",
+                    "type": "straight",
+                    "name": "S1",
+                    "model": "straight",
+                    "nets": {"o1": "n"},
+                },
+            },
+            "models": {
+                "models:straight": {"name": "straight", "ports": []},
+            },
+        }
+
+        recnet = recursive_kfnetlist_from_nyancad("top", schem)
+
+        assert list(recnet) == ["top"]
+        assert _kf_data(recnet["top"])["instances"]["top_S1"]["component"] == "straight"
+
+
+# ---------------------------------------------------------------------------
+# _parse_spice_value — SPICE engineering notation to float
+# ---------------------------------------------------------------------------
+
+
+class TestParseSpiceValue:
+    """_parse_spice_value converts SPICE engineering notation to Python floats."""
+
+    def test_plain_integer(self):
+        assert _parse_spice_value("100") == 100.0
+
+    def test_plain_float(self):
+        assert _parse_spice_value("3.14") == 3.14
+
+    def test_scientific_notation(self):
+        assert _parse_spice_value("1e3") == 1000.0
+
+    def test_kilo_suffix(self):
+        assert _parse_spice_value("1k") == 1e3
+
+    def test_nano_suffix(self):
+        assert _parse_spice_value("10n") == 1e-8
+
+    def test_meg_suffix(self):
+        assert _parse_spice_value("4.7Meg") == pytest.approx(4.7e6)
+
+    def test_micro_suffix(self):
+        assert _parse_spice_value("500u") == pytest.approx(500e-6)
+
+    def test_pico_suffix(self):
+        assert _parse_spice_value("10p") == pytest.approx(10e-12)
+
+    def test_femto_suffix(self):
+        assert _parse_spice_value("1f") == 1e-15
+
+    def test_none_returns_none(self):
+        assert _parse_spice_value(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert _parse_spice_value("") is None
+
+    def test_whitespace_returns_none(self):
+        assert _parse_spice_value("  ") is None
+
+    def test_numeric_passthrough(self):
+        assert _parse_spice_value(42) == 42.0
+        assert _parse_spice_value(3.14) == 3.14
+
+
+# ---------------------------------------------------------------------------
+# Structured source parameters — InSpice dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestStructuredSources:
+    """Structured transient source parameters dispatch to InSpice's typed
+    source classes instead of passing raw SPICE strings.
+    """
+
+    def _source_schem(self, device_type, props):
+        prefix = "V" if device_type == "vsource" else "I"
+        return {
+            "top": {
+                f"top:{prefix}1": {
+                    "_id": f"top:{prefix}1",
+                    "type": device_type,
+                    "name": f"{prefix}1",
+                    "nets": {"P": "inp", "N": "gnd"},
+                    "props": props,
+                }
+            },
+            "models": {},
+        }
+
+    def test_sin_voltage(self):
+        props = {
+            "dc": "0",
+            "tran": {"type": "sin", "offset": "0", "amplitude": "1", "frequency": "1k"},
+        }
+        spice = str(NyanCircuit("top", self._source_schem("vsource", props)))
+        assert "SIN(" in spice
+        assert "1000.0Hz" in spice
+
+    def test_sin_current(self):
+        props = {
+            "dc": "0",
+            "tran": {
+                "type": "sin",
+                "offset": "0",
+                "amplitude": "1m",
+                "frequency": "1k",
+            },
+        }
+        spice = str(NyanCircuit("top", self._source_schem("isource", props)))
+        assert "SIN(" in spice
+        assert "0.001A" in spice
+
+    def test_pulse_voltage(self):
+        props = {
+            "dc": "0",
+            "tran": {
+                "type": "pulse",
+                "initial": "0",
+                "pulsed": "5",
+                "width": "500u",
+                "period": "1m",
+            },
+        }
+        spice = str(NyanCircuit("top", self._source_schem("vsource", props)))
+        assert "PULSE(" in spice
+        assert "5.0V" in spice
+
+    def test_exp_voltage(self):
+        props = {
+            "dc": "0",
+            "tran": {
+                "type": "exp",
+                "initial": "0",
+                "pulsed": "5",
+                "rise-delay": "0",
+                "rise-tau": "1m",
+                "fall-delay": "2m",
+                "fall-tau": "1m",
+            },
+        }
+        spice = str(NyanCircuit("top", self._source_schem("vsource", props)))
+        assert "EXP(" in spice
+        assert "5.0V" in spice
+
+    def test_sffm_voltage(self):
+        props = {
+            "dc": "0",
+            "tran": {
+                "type": "sffm",
+                "offset": "0",
+                "amplitude": "1",
+                "carrier-freq": "1Meg",
+                "mod-index": "5",
+                "signal-freq": "10k",
+            },
+        }
+        spice = str(NyanCircuit("top", self._source_schem("vsource", props)))
+        assert "SFFM(" in spice
+        assert "1000000.0Hz" in spice
+
+    def test_dc_only_no_tran(self):
+        props = {"dc": "5", "ac": "1"}
+        spice = str(NyanCircuit("top", self._source_schem("vsource", props)))
+        assert "DC 5" in spice
+        assert "SIN(" not in spice
+        assert "PULSE(" not in spice
+
+    def test_dc_only_empty_tran_dict(self):
+        props = {"dc": "5", "tran": {}}
+        spice = str(NyanCircuit("top", self._source_schem("vsource", props)))
+        assert "DC 5" in spice
+        assert "SIN(" not in spice
+
+    def test_legacy_string_tran_ignored(self):
+        props = {"dc": "5", "tran": "SIN(0 1 1k)"}
+        spice = str(NyanCircuit("top", self._source_schem("vsource", props)))
+        assert "DC 5" in spice
