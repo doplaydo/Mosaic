@@ -16,7 +16,9 @@ from nyancad.netlist import (
     _select_corner,
     bare_id,
     default_port_order,
+    kfnetlist_from_nyancad,
     model_key,
+    recursive_kfnetlist_from_nyancad,
 )
 
 # ---------------------------------------------------------------------------
