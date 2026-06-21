@@ -141,6 +141,24 @@
                  :r (/ grid-size 10)
                  :class port-type}])
 
+(declare port-label)
+
+(defn selected-port-labels
+  "Render model port names beside selected instance port markers.
+   @tags photonic model ports"
+  [k v locs]
+  (when (and (contains? @selected k) (seq locs))
+    (into [:g.port-labels]
+          (for [{:keys [x y side name]} locs
+                :let [cx (* (+ x 0.5) grid-size)
+                      cy (* (+ y 0.5) grid-size)]]
+            (case side
+              :left   (port-label v (- cx (* 0.35 grid-size)) cy "end" "middle" name)
+              :right  (port-label v (+ cx (* 0.35 grid-size)) cy "start" "middle" name)
+              :top    (port-label v cx (- cy (* 0.35 grid-size)) "middle" "baseline" name)
+              :bottom (port-label v cx (+ cy (* 0.35 grid-size)) "middle" "hanging" name)
+              (port-label v cx cy "middle" "middle" name))))))
+
 (defn draw-background [[width height] k v]
   [device (+ 2 (max width height)) k v
    [:rect.tetris {:x grid-size :y grid-size
@@ -579,16 +597,19 @@
   (let [model (:model v)
         ports (when model (get-in @modeldb [(cm/model-key model) :ports]))
         [width height] (if (seq ports) (cm/port-perimeter ports (:type v)) [1 1])
+        locs (when (seq ports) (cm/port-locations ports (:type v)))
         new-size (+ 2 (max width height))
         {orig-size ::size, elements ::elements} builtin-elements
         delta (- new-size orig-size)
         offset (* (/ delta 2) grid-size)]
     (into [device new-size k v
            [device-template v new-size]]
-          (if (zero? delta)
-            (map render-element elements)
-            [(into [:g {:transform (str "translate(" offset "," offset ")")}]
-                   (map render-element elements))]))))
+          (concat
+           (if (zero? delta)
+             (map render-element elements)
+             [(into [:g {:transform (str "translate(" offset "," offset ")")}]
+                    (map render-element elements))])
+           [(selected-port-labels k v locs)]))))
 
 (defn circuit-shape [k v]
   (let [model (:model v)
@@ -679,7 +700,7 @@
          [lines (for [{:keys [x y]} right-locs] [[(+ x 0) (+ y 0.5)] [(+ x 0.5) (+ y 0.5)]])]
          [lines (for [{:keys [x y]} left-locs] [[(+ x 1) (+ y 0.5)] [(+ x 0.5) (+ y 0.5)]])]])
       ;; Port labels inside box
-      (when has-model?
+      (when (and has-model? (contains? @selected k))
         [:<>
          (for [{:keys [y name]} left-locs]
            (port-label v (* 1.15 grid-size) (* (+ y 0.5) grid-size) "start" "middle" name))
@@ -763,7 +784,7 @@
                                     (+ tri-right (* port-dy (/ width (- tri-bottom tri-apex-y)))))]]
                   [[(+ x 0.5) (+ y 0.5)] [tri-x (+ y 0.5)]])]])
       ;; Port labels inside triangle
-      (when has-model?
+      (when (and has-model? (contains? @selected k))
         [:<>
          (for [{:keys [y name]} left-locs]
            (port-label v (* 1.15 grid-size) (* (+ y 0.5) grid-size) "start" "middle" name))

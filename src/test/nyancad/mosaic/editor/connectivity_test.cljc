@@ -517,6 +517,29 @@
   [id {:type type :model model-id :x x :y y
        :transform [1 0 0 1 0 0] :name id}])
 
+(defn- port-label-texts [hiccup]
+  (->> (tree-seq #(or (seq? %) (vector? %)) seq hiccup)
+       (filter #(and (vector? %) (= :text.port-label (first %))))
+       (map last)))
+
+(deftest selected-port-labels-render-only-when-selected
+  (testing "selected photonic model ports get SVG text labels"
+    (let [dev {:type "straight" :model "test.straight"
+               :x 0 :y 0 :transform [1 0 0 1 0 0] :name "S1"}
+          locs [{:name "o1" :side :left :type "photonic" :x 0 :y 1}
+                {:name "o2" :side :right :type "photonic" :x 2 :y 1}]]
+      (try
+        (swap! e/ui assoc ::e/selected #{})
+        (is (nil? (e/selected-port-labels "S1" dev locs))
+            "unselected devices keep port labels hidden")
+        (swap! e/ui assoc ::e/selected #{"S1"})
+        (with-redefs [e/port-label (fn [_v _x _y _anchor _baseline pname]
+                                      [:text.port-label {} pname])]
+          (is (= ["o1" "o2"]
+                 (port-label-texts (e/selected-port-labels "S1" dev locs)))))
+        (finally
+          (swap! e/ui assoc ::e/selected #{}))))))
+
 (deftest photonic-model-ports-override-port-names
   (testing "straight with model ports uses model port names, not builtin '1'/'2'"
     (reset! pform/modeldb
