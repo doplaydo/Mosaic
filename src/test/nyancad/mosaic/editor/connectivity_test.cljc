@@ -523,7 +523,7 @@
        (map last)))
 
 (deftest selected-port-labels-render-only-when-selected
-  (testing "selected photonic model ports get SVG text labels"
+  (testing "selected photonic model ports get outside SVG text labels"
     (let [dev {:type "straight" :model "test.straight"
                :x 0 :y 0 :transform [1 0 0 1 0 0] :name "S1"}
           locs [{:name "o1" :side :left :type "photonic" :x 0 :y 1}
@@ -533,10 +533,9 @@
         (is (nil? (e/selected-port-labels "S1" dev locs))
             "unselected devices keep port labels hidden")
         (swap! e/ui assoc ::e/selected #{"S1"})
-        (with-redefs [e/port-label (fn [_v _x _y _anchor _baseline pname]
-                                      [:text.port-label {} pname])]
-          (is (= ["o1" "o2"]
-                 (port-label-texts (e/selected-port-labels "S1" dev locs)))))
+        (is (= ["o1" "o2"]
+               (port-label-texts (e/selected-port-labels "S1" dev locs)))
+            "selected devices label each model port")
         (finally
           (swap! e/ui assoc ::e/selected #{}))))))
 

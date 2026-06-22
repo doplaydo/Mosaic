@@ -141,24 +141,6 @@
                  :r (/ grid-size 10)
                  :class port-type}])
 
-(declare port-label)
-
-(defn selected-port-labels
-  "Render model port names beside selected instance port markers.
-   @tags photonic model ports"
-  [k v locs]
-  (when (and (contains? @selected k) (seq locs))
-    (into [:g.port-labels]
-          (for [{:keys [x y side name]} locs
-                :let [cx (* (+ x 0.5) grid-size)
-                      cy (* (+ y 0.5) grid-size)]]
-            (case side
-              :left   (port-label v (- cx (* 0.35 grid-size)) cy "end" "middle" name)
-              :right  (port-label v (+ cx (* 0.35 grid-size)) cy "start" "middle" name)
-              :top    (port-label v cx (- cy (* 0.35 grid-size)) "middle" "baseline" name)
-              :bottom (port-label v cx (+ cy (* 0.35 grid-size)) "middle" "hanging" name)
-              (port-label v cx cy "middle" "middle" name))))))
-
 (defn draw-background [[width height] k v]
   [device (+ 2 (max width height)) k v
    [:rect.tetris {:x grid-size :y grid-size
@@ -591,25 +573,82 @@
                [:path {:d "M75,55 A35,35 0 0,1 75,95"}]
                [:path {:d "M84,49 A45,45 0 0,1 84,101"}]]})
 
+;; Helper: port-name labels for a selected instance. Each label is anchored at
+;; the device body edge and reads OUTWARD along its port stem — horizontal on
+;; left/right ports, a single -90° head-tilt on top/bottom ports — so long
+;; names run past the connection dot instead of into the symbol. The
+;; orientation is chosen from the port's outward normal *after* the instance
+;; transform, and the text is counter-rotated (then re-oriented) so it is never
+;; upside-down or mirrored under rotation/flips — unlike `port-label`, which
+;; only counter-rotates to stay flat-upright.
+(defn selected-port-labels
+  "Render model port names beside a selected instance's port markers, oriented
+   along each port's stem (left/right horizontal, top/bottom head-tilted) and
+   kept upright/unmirrored under the instance transform.
+   @tags photonic model ports"
+  [k v locs]
+  (when (and (contains? @selected k) (seq locs))
+    (let [[a0 b0 c0 d0 _ _] (:transform v cm/IV)   ; instance linear part (e=f=0)
+          det (- (* a0 d0) (* b0 c0))
+          stem (* grid-size 0.5)   ; marker → device body edge
+          clear 6                  ; perpendicular lift + gap from the body edge
+          base (- stem clear)]     ; along-stem anchor: `clear` out from the edge
+      (into [:g.port-labels]
+            (for [{:keys [x y side name]} locs
+                  :let [mx (* (+ x 0.5) grid-size)
+                        my (* (+ y 0.5) grid-size)
+                        ;; local outward normal for the canonical side …
+                        [ux uy] (case side
+                                  :left [-1 0] :right [1 0]
+                                  :top [0 -1] :bottom [0 1] [0 0])
+                        ;; … rotated into screen space by the instance transform
+                        nx (+ (* a0 ux) (* c0 uy))
+                        ny (+ (* b0 ux) (* d0 uy))
+                        horizontal (>= (js/Math.abs nx) (js/Math.abs ny))
+                        visual (if horizontal
+                                 (if (neg? nx) :left :right)
+                                 (if (neg? ny) :top :bottom))
+                        ;; rotate(angle): 0 for horizontal, -90 head-tilt for vertical
+                        [ra rb rc rd] (if horizontal [1 0 0 1] [0 -1 1 0])
+                        ;; inverse(M) linear part
+                        ia (/ d0 det) ib (/ (- b0) det) ic (/ (- c0) det) id (/ a0 det)
+                        ;; P = inverse(M)·rotate(angle), as matrix(pa pb pc pd)
+                        pa (+ (* ia ra) (* ic rb)) pb (+ (* ib ra) (* id rb))
+                        pc (+ (* ia rc) (* ic rd)) pd (+ (* ib rc) (* id rd))
+                        ;; pivot the whole thing about the marker so position holds
+                        e (- mx (+ (* pa mx) (* pc my)))
+                        f (- my (+ (* pb mx) (* pd my)))
+                        tmat (str "matrix(" pa " " pb " " pc " " pd " " e " " f ")")
+                        ;; anchor at the base (body edge) so long labels read
+                        ;; OUTWARD past the dot instead of into the symbol
+                        [anchor along] (case visual
+                                         :right  ["start" (- base)]
+                                         :top    ["start" (- base)]
+                                         :left   ["end" base]
+                                         :bottom ["end" base])]]
+              [:text.port-label {:key (str name)
+                                 :x (+ mx along) :y (- my clear)
+                                 :text-anchor anchor
+                                 :dominant-baseline "auto"
+                                 :transform tmat}
+               name])))))
+
 ;; @tags photonic model ports
 (defn- photonic-sym
   [builtin-elements k v]
   (let [model (:model v)
         ports (when model (get-in @modeldb [(cm/model-key model) :ports]))
         [width height] (if (seq ports) (cm/port-perimeter ports (:type v)) [1 1])
-        locs (when (seq ports) (cm/port-locations ports (:type v)))
         new-size (+ 2 (max width height))
         {orig-size ::size, elements ::elements} builtin-elements
         delta (- new-size orig-size)
         offset (* (/ delta 2) grid-size)]
     (into [device new-size k v
            [device-template v new-size]]
-          (concat
-           (if (zero? delta)
-             (map render-element elements)
-             [(into [:g {:transform (str "translate(" offset "," offset ")")}]
-                    (map render-element elements))])
-           [(selected-port-labels k v locs)]))))
+          (if (zero? delta)
+            (map render-element elements)
+            [(into [:g {:transform (str "translate(" offset "," offset ")")}]
+                   (map render-element elements))]))))
 
 (defn circuit-shape [k v]
   (let [model (:model v)
@@ -621,9 +660,17 @@
   (let [model (:model v)
         ports (get-in @modeldb [(cm/model-key model) :ports])
         [width height] (if ports (cm/port-perimeter ports (:type v)) [1 1])
-        pattern (if ports (cm/port-locations ports (:type v)) [])]
-    (draw-pattern (+ 2 (max width height)) pattern
-                  port k v)))
+        locs (if ports (cm/port-locations ports (:type v)) [])
+        size (+ 2 (max width height))]
+    [device size k v
+     (into [:<>]
+           (for [{:keys [x y type]} locs]
+             ^{:key [x y]} [port (* x grid-size) (* y grid-size) type]))
+     ;; Port-name labels live with the markers. Gated to builtin types in
+     ;; `models` (photonic, and any future model-driven builtin) so ckt/amp
+     ;; subcircuits keep their own interior labels instead of doubling up.
+     (when (contains? models (:type v))
+       (selected-port-labels k v locs))]))
 
 
 ;; Helper: counter-rotation transform for text that should stay upright
@@ -700,7 +747,7 @@
          [lines (for [{:keys [x y]} right-locs] [[(+ x 0) (+ y 0.5)] [(+ x 0.5) (+ y 0.5)]])]
          [lines (for [{:keys [x y]} left-locs] [[(+ x 1) (+ y 0.5)] [(+ x 0.5) (+ y 0.5)]])]])
       ;; Port labels inside box
-      (when (and has-model? (contains? @selected k))
+      (when has-model?
         [:<>
          (for [{:keys [y name]} left-locs]
            (port-label v (* 1.15 grid-size) (* (+ y 0.5) grid-size) "start" "middle" name))
@@ -784,7 +831,7 @@
                                     (+ tri-right (* port-dy (/ width (- tri-bottom tri-apex-y)))))]]
                   [[(+ x 0.5) (+ y 0.5)] [tri-x (+ y 0.5)]])]])
       ;; Port labels inside triangle
-      (when (and has-model? (contains? @selected k))
+      (when has-model?
         [:<>
          (for [{:keys [y name]} left-locs]
            (port-label v (* 1.15 grid-size) (* (+ y 0.5) grid-size) "start" "middle" name))
