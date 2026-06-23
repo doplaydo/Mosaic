@@ -21,3 +21,12 @@ repos:
       - id: ruff-check
         types_or: [python, pyi]
         args: ['--fix']
+
+  - repo: local
+    hooks:
+      - id: clj-kondo
+        name: clj-kondo
+        entry: bash -c 'command -v clj-kondo >/dev/null 2>&1 && clj-kondo --lint src --fail-level error || echo "clj-kondo not installed, skipping"'
+        language: system
+        files: ^src/.*\.(clj|cljs|cljc)$
+        pass_filenames: false
