@@ -43,8 +43,8 @@
                      ::mouse-start [0 0]
                      ::notebook-state ::embedded
                      ::pointer-cache {}
-                     ::tab-index 0
-                     ::control-groups {}}))
+                     ::tab-index 0}))
+
 
 (s/def ::zoom (s/coll-of number? :count 4))
 (s/def ::theme (s/nilable #{"light" "dark" "eyesore"}))
@@ -61,8 +61,7 @@
 (s/def ::y number?)
 (s/def ::pointer-cache (s/map-of int? (s/keys :req-un [::x ::y])))
 (s/def ::tab-index nat-int?)
-(s/def ::control-groups (s/map-of (s/int-in 0 10) ::selected))
-(s/def ::ui (s/keys :req [::zoom ::theme ::tool ::selected ::notebook-state ::pointer-cache ::tab-index ::control-groups]
+(s/def ::ui (s/keys :req [::zoom ::theme ::tool ::selected ::notebook-state ::pointer-cache ::tab-index]
                     :opt [::dragging ::staging]))
 
 (set-validator! ui #(or (s/valid? ::ui %) (.log js/console (pr-str %) (s/explain-str ::ui %))))
@@ -75,7 +74,6 @@
 (defonce staging (r/cursor ui [::staging]))
 (defonce notebook-state (r/cursor ui [::notebook-state]))
 (defonce tab-index (r/cursor ui [::tab-index]))
-(defonce control-groups (r/cursor ui [::control-groups]))
 (defonce pointer-cache (r/cursor ui [::pointer-cache]))
 
 ; Model selector popup state
@@ -1700,10 +1698,12 @@
           (post-action!)))))
 
 (defn move-selected [dx dy]
-  (when (seq @selected)
-    (swap! schematic update-keys @selected
-           #(-> % (update :x + dx) (update :y + dy)))
-    (post-action!)))
+  (if (seq @selected)
+    (do (swap! schematic update-keys @selected
+              #(-> % (update :x + dx) (update :y + dy)))
+        (post-action!))
+    (swap! ui update ::zoom
+           (fn [[x y w h]] [(+ x (* dx grid-size)) (+ y (* dy grid-size)) w h]))))
 
 (defn tab-next []
   (let [type (or (when-let [s @staging] (:type s))
@@ -1719,16 +1719,6 @@
         (when (pos? n)
           (let [idx (swap! tab-index #(mod (inc %) n))]
             (reset! selected #{(nth ids idx)})))))))
-
-
-(defn assign-control-group [n]
-  (when (seq @selected)
-    (swap! ui assoc-in [::control-groups n] @selected)))
-
-(defn recall-control-group [n]
-  (when-let [group (get @control-groups n)]
-    (reset! selected group)))
-
 (defn delete-selected []
   (let [selected (::selected @ui)]
     (swap! ui assoc ::selected #{})
@@ -1885,14 +1875,16 @@
    1-arity: switch to specified tool and clear staging"
   ([]
    (let [uiv @ui]
-     (if (and (::staging uiv) (= (::tool uiv) ::wire))
-       (swap! ui assoc
-              ::dragging nil
-              ::staging nil)
-       (swap! ui assoc
-              ::dragging nil
-              ::tool ::cursor
-              ::staging nil))))
+     (if (or (::staging uiv) (::dragging uiv) (not= (::tool uiv) ::cursor))
+       (if (and (::staging uiv) (= (::tool uiv) ::wire))
+         (swap! ui assoc
+                ::dragging nil
+                ::staging nil)
+         (swap! ui assoc
+                ::dragging nil
+                ::tool ::cursor
+                ::staging nil))
+       (swap! ui assoc ::selected #{}))))
   ([new-tool]
    (swap! ui assoc
           ::dragging nil
@@ -2778,31 +2770,13 @@
                 #{(keyword " ")} (fn [] (swap! ui #(assoc % ::tool (::prev-tool %))))
                 #{:r}        (fn [_] (transform-selected #(.rotate % 90)))
                 #{:shift :r} (fn [_] (transform-selected #(.rotate % -90)))
-                #{:x}        (fn [_] (transform-selected #(.flipY %)))
-                #{:y}        (fn [_] (transform-selected #(.flipX %)))
+                #{:x}        (fn [_] (transform-selected #(.flipX %)))
+                #{:y}        (fn [_] (transform-selected #(.flipY %)))
                 #{:arrowup}    #(move-selected 0 -1)
                 #{:arrowdown}  #(move-selected 0 1)
                 #{:arrowleft}  #(move-selected -1 0)
                 #{:arrowright} #(move-selected 1 0)
-                #{:tab} tab-next
-                #{:1} #(recall-control-group 1)
-                #{:2} #(recall-control-group 2)
-                #{:3} #(recall-control-group 3)
-                #{:4} #(recall-control-group 4)
-                #{:5} #(recall-control-group 5)
-                #{:6} #(recall-control-group 6)
-                #{:7} #(recall-control-group 7)
-                #{:8} #(recall-control-group 8)
-                #{:9} #(recall-control-group 9)
-                #{:control :1} #(assign-control-group 1)
-                #{:control :2} #(assign-control-group 2)
-                #{:control :3} #(assign-control-group 3)
-                #{:control :4} #(assign-control-group 4)
-                #{:control :5} #(assign-control-group 5)
-                #{:control :6} #(assign-control-group 6)
-                #{:control :7} #(assign-control-group 7)
-                #{:control :8} #(assign-control-group 8)
-                #{:control :9} #(assign-control-group 9)
+                #{(keyword "`")} tab-next
                 #{:control :c} copy
                 #{:control :x} cut
                 #{:control :v} paste
