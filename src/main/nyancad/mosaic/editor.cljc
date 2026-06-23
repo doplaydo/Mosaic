@@ -43,6 +43,7 @@
                      ::mouse-start [0 0]
                      ::notebook-state ::embedded
                      ::pointer-cache {}
+                     ::tab-index 0
                      ::control-groups {}}))
 
 (s/def ::zoom (s/coll-of number? :count 4))
@@ -59,8 +60,9 @@
 (s/def ::x number?)
 (s/def ::y number?)
 (s/def ::pointer-cache (s/map-of int? (s/keys :req-un [::x ::y])))
+(s/def ::tab-index nat-int?)
 (s/def ::control-groups (s/map-of (s/int-in 0 10) ::selected))
-(s/def ::ui (s/keys :req [::zoom ::theme ::tool ::selected ::notebook-state ::pointer-cache ::control-groups]
+(s/def ::ui (s/keys :req [::zoom ::theme ::tool ::selected ::notebook-state ::pointer-cache ::tab-index ::control-groups]
                     :opt [::dragging ::staging]))
 
 (set-validator! ui #(or (s/valid? ::ui %) (.log js/console (pr-str %) (s/explain-str ::ui %))))
@@ -72,6 +74,7 @@
 (defonce delta (r/cursor ui [::delta]))
 (defonce staging (r/cursor ui [::staging]))
 (defonce notebook-state (r/cursor ui [::notebook-state]))
+(defonce tab-index (r/cursor ui [::tab-index]))
 (defonce control-groups (r/cursor ui [::control-groups]))
 (defonce pointer-cache (r/cursor ui [::pointer-cache]))
 
@@ -1702,6 +1705,22 @@
            #(-> % (update :x + dx) (update :y + dy)))
     (post-action!)))
 
+(defn tab-next []
+  (let [type (or (when-let [s @staging] (:type s))
+                 (when-let [id (first @selected)]
+                   (:type (get @schematic id))))]
+    (when type
+      (when @staging
+        (swap! ui assoc ::staging nil ::tool ::cursor))
+      (let [ids (->> @schematic
+                     (filter (fn [[_ v]] (= type (:type v))))
+                     keys sort vec)
+            n (count ids)]
+        (when (pos? n)
+          (let [idx (swap! tab-index #(mod (inc %) n))]
+            (reset! selected #{(nth ids idx)})))))))
+
+
 (defn assign-control-group [n]
   (when (seq @selected)
     (swap! ui assoc-in [::control-groups n] @selected)))
@@ -2765,6 +2784,7 @@
                 #{:arrowdown}  #(move-selected 0 1)
                 #{:arrowleft}  #(move-selected -1 0)
                 #{:arrowright} #(move-selected 1 0)
+                #{:tab} tab-next
                 #{:1} #(recall-control-group 1)
                 #{:2} #(recall-control-group 2)
                 #{:3} #(recall-control-group 3)
