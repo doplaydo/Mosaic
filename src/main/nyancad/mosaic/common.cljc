@@ -324,7 +324,7 @@
                     "mmi-1x2" "mmi-2x2" "mzi-1x2" "mzi-2x2"
                     "grating-coupler"})
 
-(def schematic-only-types #{"wire" "port" "text" "polyline"})
+(def schematic-only-types #{"wire" "port" "text" "polyline" "group"})
 
 (s/def ::type (clojure.set/union device-types schematic-only-types))
 

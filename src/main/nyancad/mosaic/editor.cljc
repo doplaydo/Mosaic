@@ -1079,7 +1079,11 @@
                      ::conn []
                      ::sym text-sym
                      ::template "Operating Point:\n{res.op}"
-                     ::props []}})
+                     ::props []}
+             "group" {::bg []
+                      ::conn []
+                      ::sym nil
+                      ::props []}})
 
 (defn rotate-shape
   ([shape transform devx devy]
