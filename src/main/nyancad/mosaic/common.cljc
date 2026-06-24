@@ -1091,8 +1091,7 @@
     {:on-click #(reset! modal-content nil)
      :aria-label "Close"}
     "\u00D7"]
-   [:h2 "Welcome to Mosaic"]
-   [:p.intro "Modern schematic entry and simulation for analog IC design."]
+   [:h2 "GF+ Schematic Editor"]
 
    ;; Components section - full width
    [:div.shortcut-category.components-section
