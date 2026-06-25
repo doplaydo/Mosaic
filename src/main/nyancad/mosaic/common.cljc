@@ -657,7 +657,6 @@
 (def amp-icon (r/adapt-react-class icons/CaretRight))
 (def photonic-icon (r/adapt-react-class icons/Lightbulb))
 (def rocket-icon (r/adapt-react-class icons/RocketTakeoff))
-(def fire-icon (r/adapt-react-class icons/Fire))
 (def search (r/adapt-react-class icons/Search))
 (def exclamation-triangle (r/adapt-react-class icons/ExclamationTriangleFill))
 (def exclamation-diamond (r/adapt-react-class icons/ExclamationDiamondFill))

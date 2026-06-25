@@ -72,19 +72,14 @@
   "VSCode secondary menu: simulate (toolbar-group dropdown), switch to Livewire."
   [_ui]
   [:<>
-   [:div.toolbar-group
-    [:a {:title "Simulate (SAX)"
-         :on-click #(.postMessage vscode
-                      #js{:type "open-sax-simulation"})}
-     [cm/rocket-icon]]
-    [:a {:title "SPICE Simulation (marimo, deprecated)"
-         :on-click #(.postMessage vscode
-                      #js{:type "start-simulation"})}
-     [cm/fire-icon]]]
+   [:a {:title "Simulate (SAX)"
+        :on-click #(.postMessage vscode
+                                 #js{:type "open-sax-simulation"})}
+    [cm/rocket-icon]]
    [:a {:title "Open in Livewire layout editor"
         :on-click #(.postMessage vscode
-                     #js{:type "switchEditor"
-                         :viewType "gdsfactoryplus.livewireNyancirEditor"})}
+                                 #js{:type "switchEditor"
+                                     :viewType "gdsfactoryplus.livewireNyancirEditor"})}
     [cm/layout-icon]]])
 
 (defn init-extra!
