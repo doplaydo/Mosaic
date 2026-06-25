@@ -1678,6 +1678,17 @@
                     (+ x (/ w 2))
                     (+ y (/ h 2)))))
 
+(defn zoom-to-fit []
+  (when-let [^js el (js/document.querySelector ".mosaic-canvas")]
+    (let [bbox (.getBBox el)
+          bx (.-x bbox) by (.-y bbox)
+          bw (.-width bbox) bh (.-height bbox)]
+      (when (and (pos? bw) (pos? bh))
+        (let [pad 0.1
+              pw (* bw pad) ph (* bh pad)]
+          (reset! ui (assoc @ui ::zoom [(- bx pw) (- by ph)
+                                        (+ bw (* 2 pw)) (+ bh (* 2 ph))])))))))
+
 (defn commit-staged [dev]
   (let [named (update dev :name (fnil identity (make-name (:type dev))))
         id (str group sep (:name named))
@@ -2520,6 +2531,9 @@
      [:a {:title "zoom out [scroll wheel/pinch]"
           :on-click #(button-zoom 1)}
       [cm/zoom-out]]
+     [:a {:title "zoom to fit [Home]"
+          :on-click #(zoom-to-fit)}
+      [cm/zoom-fit]]
      [:a {:title "undo [ctrl+z]"
           :on-click undo-schematic}
       [cm/undoi]]
@@ -2785,7 +2799,8 @@
                 #{:control :x} cut
                 #{:control :v} paste
                 #{:control :z} undo-schematic
-                #{:control :shift :z} redo-schematic})
+                #{:control :shift :z} redo-schematic
+                #{:home} zoom-to-fit})
 
 (def immediate-shortcuts
   {#{(keyword " ")} (fn [] (swap! ui #(assoc % ::tool ::pan ::prev-tool (::tool %))))})

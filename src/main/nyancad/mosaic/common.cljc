@@ -613,6 +613,7 @@
 ; icons
 (def zoom-in (r/adapt-react-class icons/ZoomIn))
 (def zoom-out (r/adapt-react-class icons/ZoomOut))
+(def zoom-fit (r/adapt-react-class icons/ArrowsFullscreen))
 (def redoi (r/adapt-react-class icons/Arrow90degRight))
 (def undoi (r/adapt-react-class icons/Arrow90degLeft))
 (def rotatecw (r/adapt-react-class icons/ArrowClockwise))
@@ -1139,7 +1140,8 @@
       [[mirror-vertical] "X" "Mirror X-axis"]
       [[mirror-horizontal] "Y" "Mirror Y-axis"]
       [[delete] "Del" "Delete"]
-      [[zoom-in] "Scroll" "Zoom"]]]
+      [[zoom-in] "Scroll" "Zoom"]
+      [[zoom-fit] "Home" "Zoom to fit"]]]
 
     [shortcut-table "Actions"
      [[[undoi] "Ctrl+Z" "Undo"]
