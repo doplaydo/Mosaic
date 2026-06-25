@@ -2401,9 +2401,12 @@
 (defn device-context-menu [k e]
   (.preventDefault e)
   (.stopPropagation e)
-  (swap! ui assoc ::selected #{k})        ; highlight the right-clicked device
-  (cm/set-context-menu (.-clientX e) (.-clientY e)
-                       [:div.device-props [deviceprops k]]))
+  (if (or (::dragging @ui) (not= (::tool @ui) ::cursor))
+    (cancel)
+    (do
+      (swap! ui assoc ::selected #{k})
+      (cm/set-context-menu (.-clientX e) (.-clientY e)
+                           [:div.device-props [deviceprops k]]))))
 
 (defn copy []
   (let [sel @selected
