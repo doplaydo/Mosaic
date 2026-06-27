@@ -591,11 +591,11 @@
 ;; transform, and the text is counter-rotated (then re-oriented) so it is never
 ;; upside-down or mirrored under rotation/flips — unlike `port-label`, which
 ;; only counter-rotates to stay flat-upright.
+;; @tags photonic model ports
 (defn selected-port-labels
   "Render model port names beside a selected instance's port markers, oriented
    along each port's stem (left/right horizontal, top/bottom head-tilted) and
-   kept upright/unmirrored under the instance transform.
-   @tags photonic model ports"
+   kept upright/unmirrored under the instance transform."
   [k v locs]
   (when (and (contains? @selected k) (seq locs))
     (let [[a0 b0 c0 d0 _ _] (:transform v cm/IV)   ; instance linear part (e=f=0)
@@ -1678,16 +1678,34 @@
                     (+ x (/ w 2))
                     (+ y (/ h 2)))))
 
+;; @tags mosaic viewport zoom
+(defn fit-viewbox
+  [bx by bw bh container-w container-h]
+  (let [pad 0.1
+        pw (* bw pad) ph (* bh pad)
+        cx (- bx pw) cy (- by ph)
+        cw (+ bw (* 2 pw)) ch (+ bh (* 2 ph))
+        cw (max cw grid-size) ch (max ch grid-size)
+        content-ar (/ cw ch)
+        container-ar (/ container-w container-h)]
+    (if (> container-ar content-ar)
+      (let [new-w (* ch container-ar)
+            dx (/ (- new-w cw) 2)]
+        [(- cx dx) cy new-w ch])
+      (let [new-h (/ cw container-ar)
+            dy (/ (- new-h ch) 2)]
+        [cx (- cy dy) cw new-h]))))
+
+;; @tags mosaic viewport zoom
 (defn zoom-to-fit []
-  (when-let [^js el (js/document.querySelector ".mosaic-canvas")]
-    (let [bbox (.getBBox el)
-          bx (.-x bbox) by (.-y bbox)
-          bw (.-width bbox) bh (.-height bbox)]
-      (when (and (pos? bw) (pos? bh))
-        (let [pad 0.1
-              pw (* bw pad) ph (* bh pad)]
-          (reset! ui (assoc @ui ::zoom [(- bx pw) (- by ph)
-                                        (+ bw (* 2 pw)) (+ bh (* 2 ph))])))))))
+  (when-let [^js svg (js/document.querySelector ".mosaic-canvas")]
+    (when-let [^js el (.querySelector svg ".schematic-content")]
+      (let [bbox (.getBBox el)
+            bw (.-width bbox) bh (.-height bbox)]
+        (when (and (pos? bw) (pos? bh))
+          (let [vb (fit-viewbox (.-x bbox) (.-y bbox) bw bh
+                                (.-clientWidth svg) (.-clientHeight svg))]
+            (reset! ui (assoc @ui ::zoom vb))))))))
 
 (defn commit-staged [dev]
   (let [named (update dev :name (fnil identity (make-name (:type dev))))
@@ -2768,9 +2786,10 @@
               :y (* -500 grid-size)
               :width (* 1000 grid-size)
               :height (* 1000 grid-size)}]
-      [schematic-elements @schematic]
-      [schematic-airwires]
-      [schematic-dots]
+      [:g.schematic-content
+       [schematic-elements @schematic]
+       [schematic-airwires]
+       [schematic-dots]]
       [tool-elements]]]
     [notebook-panel notebook-state]]
    [cm/contextmenu]
