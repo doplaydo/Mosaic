@@ -241,6 +241,13 @@
           locs (into {} (map (juxt :name (juxt :x :y))) (cm/port-locations ports))]
       (is (= {"in+" [0 1] "in-" [0 3] "out" [2 2]} locs)))))
 
+(deftest port-locations-sorts-same-side-ports-by-name
+  (testing "same-side input order does not affect assigned grid slots"
+    (let [ports [{:name "b" :side :left :type :electric}
+                 {:name "a" :side :left :type :electric}]
+          locs (into {} (map (juxt :name (juxt :x :y))) (cm/port-locations ports))]
+      (is (= {"a" [0 1] "b" [0 2]} locs)))))
+
 (deftest port-locations-four-side
   (testing "1 port per side, perimeter (1,1)"
     (let [ports [{:name "T" :side :top :type :electric}
