@@ -270,9 +270,14 @@ def _eval_params(entry_params, device_props, sim="NgSpice"):
 def kf_component_name(dev_id, dev, models):
     """Resolve a Mosaic device to the component name used in kfnetlist/SAX."""
     model_id = dev.get("model")
-    model = models.get(model_key(model_id))
     if not model_id:
+        # Built-in types (e.g. OpticalSource, OpticalDetector) carry no library
+        # model reference — the device type is the component name directly.
+        dev_type = dev.get("type")
+        if dev_type:
+            return dev_type
         raise ValueError(f"Device {dev_id} has no model")
+    model = models.get(model_key(model_id))
     if not model:
         raise ValueError(f"Model metadata missing for {model_id!r}")
     if not model.get("name"):
@@ -403,6 +408,19 @@ def _kf_instance_id_map(docs):
     return instance_ids
 
 
+def _coerce_props(props: dict) -> dict:
+    """Convert string prop values to float where possible; drop empty strings."""
+    result = {}
+    for k, v in props.items():
+        if v is None or v == "":
+            continue
+        try:
+            result[k] = float(v)
+        except (TypeError, ValueError):
+            result[k] = v
+    return result
+
+
 def kfnetlist_from_nyancad(name, schem, *, kcl="PDK"):
     """Build a ``kfnetlist.Netlist`` directly from Mosaic ``nets``.
 
@@ -425,7 +443,7 @@ def kfnetlist_from_nyancad(name, schem, *, kcl="PDK"):
 
     netlist = Netlist()
     for dev_id, dev in components:
-        settings = dict(dev.get("props") or {})
+        settings = _coerce_props(dict(dev.get("props") or {}))
         netlist.create_inst(
             dev_id,
             kcl,

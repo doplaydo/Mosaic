@@ -284,6 +284,8 @@
     "wire" "W"
     "port" "P"
     "amp" "U"
+    "OpticalSource" "LS"
+    "OpticalDetector" "PD"
     "X"))
 
 (defn transform-direction
@@ -324,6 +326,7 @@
 ; Device type specs
 (def device-types #{"pmos" "nmos" "npn" "pnp" "resistor" "capacitor"
                     "inductor" "vsource" "isource" "diode" "led" "photodiode" "modulator"
+                    "OpticalSource" "OpticalDetector"
                     "ckt" "amp"
                     "straight" "bend" "sbend" "taper" "transition"
                     "terminator" "crossing" "ring-single" "ring-double" "spiral"
@@ -1077,6 +1080,8 @@
                "photodiode" (rc/inline "icons/photodiode.svg")
                "modulator" (rc/inline "icons/modulator.svg")
                "grating-coupler" (rc/inline "icons/grating-coupler.svg")
+               "OpticalSource" (rc/inline "icons/OpticalSource.svg")
+               "OpticalDetector" (rc/inline "icons/OpticalDetector.svg")
                "")]
     [:span.device-icon {:dangerouslySetInnerHTML (r/unsafe-html icon)}]))
 

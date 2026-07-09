@@ -363,6 +363,48 @@
                [:text {:x 75 :y 70 :text-anchor "middle"} "+"]
                [:text {:x 75 :y 90 :text-anchor "middle"} "−"]]})
 
+;; 24-ray sun: alternating long (r=0.42) / short (r=0.28) rays at 15° intervals.
+;; Wire [[1.92 1.5] [2.5 1.5]] connects 0° ray tip to port p1.
+;; @tags circulax simulation
+(def optical-source-elements
+  {::size 3
+   ::elements [[:lines [[[1.5 1.5] [1.92  1.5  ]]   ;   0° long
+                        [[1.5 1.5] [1.77  1.572]]   ;  15° short
+                        [[1.5 1.5] [1.864 1.71 ]]   ;  30° long
+                        [[1.5 1.5] [1.698 1.698]]   ;  45° short
+                        [[1.5 1.5] [1.71  1.864]]   ;  60° long
+                        [[1.5 1.5] [1.572 1.77 ]]   ;  75° short
+                        [[1.5 1.5] [1.5   1.92 ]]   ;  90° long
+                        [[1.5 1.5] [1.428 1.77 ]]   ; 105° short
+                        [[1.5 1.5] [1.29  1.864]]   ; 120° long
+                        [[1.5 1.5] [1.302 1.698]]   ; 135° short
+                        [[1.5 1.5] [1.136 1.71 ]]   ; 150° long
+                        [[1.5 1.5] [1.23  1.572]]   ; 165° short
+                        [[1.5 1.5] [1.08  1.5  ]]   ; 180° long
+                        [[1.5 1.5] [1.23  1.428]]   ; 195° short
+                        [[1.5 1.5] [1.136 1.29 ]]   ; 210° long
+                        [[1.5 1.5] [1.302 1.302]]   ; 225° short
+                        [[1.5 1.5] [1.29  1.136]]   ; 240° long
+                        [[1.5 1.5] [1.428 1.23 ]]   ; 255° short
+                        [[1.5 1.5] [1.5   1.08 ]]   ; 270° long
+                        [[1.5 1.5] [1.572 1.23 ]]   ; 285° short
+                        [[1.5 1.5] [1.71  1.136]]   ; 300° long
+                        [[1.5 1.5] [1.698 1.302]]   ; 315° short
+                        [[1.5 1.5] [1.864 1.29 ]]   ; 330° long
+                        [[1.5 1.5] [1.77  1.428]]   ; 345° short
+                        [[1.92  1.5] [2.5  1.5  ]]]]]})
+
+;; Photodetector: double-walled circle (one grid cell) with two photon arrows (↘), wire to p1.
+;; Circle centered at canvas center (75,75)px = grid (1.5,1.5). Outer r=22px fits in 50×50 cell.
+;; @tags circulax simulation
+(def optical-detector-elements
+  {::size 3
+   ::elements [[:lines [[[0.5 1.5] [1.06 1.5]]]]
+               [:circle.outline {:cx 1.5 :cy 1.5 :r 0.44}]
+               [:circle.outline {:cx 1.5 :cy 1.5 :r 0.28}]
+               [:path {:d "M73,67 L83,77 M80,77 L83,77 L83,73"}]
+               [:path {:d "M67,73 L77,83 M73,83 L77,83 L77,80"}]]})
+
 (defn diode-sym [k v]
   (let [shape [[[1.5 0.5] [1.5 1.4]]
                [[1.3 1.7] [1.7 1.7]]
@@ -413,7 +455,7 @@
 ;; Quarter-arc from left port curving up to top port
 (def bend-elements
   {::size 3
-   ::elements [[:path {:d "M25,75 H50 Q75,75 75,50 V25"}]]})
+   ::elements [[:path {:d "M25,75 H50 Q75,75 75,100 V125"}]]})
 
 ;; bg [1,2], size 4, 200x200px
 ;; Ports: (0,1)→px(25,75)  (2,2)→px(125,125)
@@ -966,6 +1008,19 @@
                         ::props [{:name "dc" :tooltip "DC current" :spice "dc"}
                                  {:name "ac" :tooltip "AC current" :spice "ac"}
                                  tran-field]}
+             "OpticalSource" {::bg cm/twoport-bg
+                              ::conn [{:name "p1" :x 2 :y 1 :type "photonic"}]
+                              ::sym optical-source-elements
+                              ::category "source"
+                              ::template "{self.name}"
+                              ::props [{:name "power" :tooltip "Optical power (W)"}
+                                       {:name "phase" :tooltip "Phase (rad)"}]}
+             "OpticalDetector" {::bg cm/twoport-bg
+                                ::conn [{:name "p1" :x 0 :y 1 :type "photonic"}]
+                                ::sym optical-detector-elements
+                                ::category "photonic-active"
+                                ::template "{self.name}"
+                                ::props []}
              "diode" {::bg cm/twoport-bg
                       ::conn cm/twoport-conn
                       ::sym #'diode-sym
@@ -2710,7 +2765,16 @@
     [:button {:title "Add capacitor"
               :class (device-active "capacitor")
               :on-pointer-up #(add-device "capacitor" (cm/viewbox-coord %))}
-     [cm/device-icon "capacitor"]]]])
+     [cm/device-icon "capacitor"]]]
+   [variant-tray
+    [:button {:title "Add optical source"
+              :class (device-active "OpticalSource")
+              :on-pointer-up #(add-device "OpticalSource" (cm/viewbox-coord %))}
+     [cm/device-icon "OpticalSource"]]
+    [:button {:title "Add optical detector"
+              :class (device-active "OpticalDetector")
+              :on-pointer-up #(add-device "OpticalDetector" (cm/viewbox-coord %))}
+     [cm/device-icon "OpticalDetector"]]]])
 
 (defn schematic-elements [schem]
   [:<>
