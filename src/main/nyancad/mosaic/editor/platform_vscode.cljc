@@ -57,11 +57,11 @@
 ;; --- Functions ---
 
 (defn open-schematic
-  "Open a subcircuit's .nyancir file in VS Code via the extension host."
+  "Open a subcircuit's .gsch file in VS Code via the extension host."
   [model-id]
   (.postMessage vscode
     #js{:type "open-file"
-        :filename (str model-id ".nyancir")}))
+        :filename (str model-id ".gsch")}))
 
 (defn notebook-panel
   "No notebook panel in VSCode."

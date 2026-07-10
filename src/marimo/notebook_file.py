@@ -496,7 +496,7 @@ def _(mo):
         schem_file = mo.md(f"**Schematic:** {_args['schem']}")
     else:
         schem_file = mo.ui.file_browser(
-            filetypes=[".nyancir"], multiple=False, label="Select Schematic"
+            filetypes=[".gsch"], multiple=False, label="Select Schematic"
         )
     schem_file
     return (schem_file,)

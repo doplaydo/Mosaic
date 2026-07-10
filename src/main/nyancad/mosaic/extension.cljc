@@ -3,7 +3,7 @@
 ; SPDX-License-Identifier: MPL-2.0
 
 (ns nyancad.mosaic.extension
-  "VSCode extension host: custom editor providers for .nyancir and .nyanlib files.
+  "VSCode extension host: custom editor providers for .gsch and .nyanlib files.
    Bridges the VSCode text document model with the webview's JsAtom."
   (:require ["vscode" :as vscode]
             ["path" :as path]
@@ -212,7 +212,7 @@
               (when-not (<! (ws-exists? file-uri))
                 (<p! (ws-write file-uri "{}")))
               (let [editor-id (cond
-                                (str/ends-with? filename ".nyancir") "Mosaic.schematic"
+                                (str/ends-with? filename ".gsch") "Mosaic.schematic"
                                 (str/ends-with? filename ".nyanlib") "Mosaic.library"
                                 :else "default")]
                 (<p! (.. vscode/commands (executeCommand "vscode.openWith" file-uri editor-id)))))))
@@ -272,7 +272,7 @@
 </head>
 <body>
   <input type=\"hidden\" id=\"document\" value=\"" (js/encodeURIComponent (.getText document)) "\">
-  <input type=\"hidden\" id=\"group\" value=\"" (uri-basename (.-uri document) ".nyancir") "\">
+  <input type=\"hidden\" id=\"group\" value=\"" (uri-basename (.-uri document) ".gsch") "\">
   <input type=\"hidden\" id=\"models\" value=\"" (js/encodeURIComponent models-content) "\">
   <div class=\"mosaic-app mosaic-editor\"></div>
   <script nonce=\"" nonce "\" src=\"" (out-uri "shared.js") "\"></script>
@@ -332,11 +332,11 @@
   (atom {}))
 
 (defn- start-marimo!
-  "Spawn marimo run as a sidecar process for the given .nyancir file.
+  "Spawn marimo run as a sidecar process for the given .gsch file.
    If already running, re-opens the Simple Browser."
   [doc-path kind]
   (let [doc-dir (path/dirname doc-path)
-        basename (path/basename doc-path ".nyancir")
+        basename (path/basename doc-path ".gsch")
         process-key [kind doc-path]]
     (if-let [{:keys [url]} (get @marimo-processes process-key)]
       ;; Already running — just re-show the browser
@@ -410,7 +410,7 @@
     (let [^js webview (.-webview webviewpanel)
           doc-uri (uri-parent (.-uri document))
           ws-root (some-> (first (.-workspaceFolders vscode/workspace)) .-uri)
-          basename (uri-basename (.-uri document) ".nyancir")
+          basename (uri-basename (.-uri document) ".gsch")
           disposables #js[]
           nyanlib-uri (if ws-root
                         (uri-join ws-root "build" "models.nyanlib")

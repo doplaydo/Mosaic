@@ -18,7 +18,7 @@
    format), inner values use keyword keys.
 
    Backfills :x/:y on entries that lack them, stacking unplaced devices
-   at x=0 so Livewire-authored .nyancir files load cleanly. The if-gate
+   at x=0 so Livewire-authored .gsch files load cleanly. The if-gate
    skips the merge AND the counter increment for entries that already
    have coordinates, so backfilled :y values pack contiguously from 0
    with no gaps."

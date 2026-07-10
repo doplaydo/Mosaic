@@ -61,14 +61,14 @@
   [model-id]
   (.postMessage vscode
     #js{:type "open-file"
-        :filename (str (cm/bare-id model-id) ".nyancir")}))
+        :filename (str (cm/bare-id model-id) ".gsch")}))
 
 (defn import-ports
   "Import port definitions from the model's schematic file via extension host."
   [model-id mod]
   (go
     (let [bare-id (cm/bare-id model-id)
-          json-str (<! (send-request! (str bare-id ".nyancir")))]
+          json-str (<! (send-request! (str bare-id ".gsch")))]
       (when json-str
         (let [parsed (js/JSON.parse json-str)
               schematic-docs (into {}

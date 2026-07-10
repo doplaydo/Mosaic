@@ -38,7 +38,7 @@ def run_async(coro):
 # ---------------------------------------------------------------------------
 # FileAPI._read_file — static helper
 # ---------------------------------------------------------------------------
-# Contract: read a .nyancir/.nyanlib JSON file, return the {id: doc} dict
+# Contract: read a .gsch/.nyanlib JSON file, return the {id: doc} dict
 # with _id injected into each dict value. Missing or empty files return
 # an empty dict (no exception). Non-dict values in the JSON (unlikely but
 # possible) pass through without _id injection — the caller is expected
@@ -47,20 +47,20 @@ def run_async(coro):
 
 class TestReadFile:
     def test_missing_file_returns_empty(self, tmp_path):
-        assert FileAPI._read_file(tmp_path / "nope.nyancir") == {}
+        assert FileAPI._read_file(tmp_path / "nope.gsch") == {}
 
     def test_empty_file_returns_empty(self, tmp_path):
-        p = tmp_path / "empty.nyancir"
+        p = tmp_path / "empty.gsch"
         p.write_text("")
         assert FileAPI._read_file(p) == {}
 
     def test_whitespace_only_returns_empty(self, tmp_path):
-        p = tmp_path / "ws.nyancir"
+        p = tmp_path / "ws.gsch"
         p.write_text("   \n\t  \n")
         assert FileAPI._read_file(p) == {}
 
     def test_valid_json_injects_id(self, project_dir):
-        docs = FileAPI._read_file(project_dir / "top.nyancir")
+        docs = FileAPI._read_file(project_dir / "top.gsch")
         # every dict value gets its key injected as _id
         for doc_id, doc in docs.items():
             assert doc["_id"] == doc_id, f"{doc_id} missing or wrong _id"
@@ -80,7 +80,7 @@ class TestReadFile:
 # ---------------------------------------------------------------------------
 # Contract:
 #   - group "models" reads models.nyanlib wholesale
-#   - any other id is the schematic's project-relative .nyancir path, read
+#   - any other id is the schematic's project-relative .gsch path, read
 #     directly (the id is opaque and already carries the extension)
 #   - missing file returns (None, {})
 
@@ -97,15 +97,15 @@ class TestGetDocs:
         }
 
     def test_schematic_id_reads_relative_nyancir_path(self, project_dir):
-        # The id is the relative .nyancir path, read directly — no extension
-        # appended (a doubled "….nyancir.nyancir" would miss the file).
+        # The id is the relative .gsch path, read directly — no extension
+        # appended (a doubled "….gsch.gsch" would miss the file).
         api = FileAPI(project_dir)
-        _, docs = run_async(api.get_docs("top.nyancir"))
+        _, docs = run_async(api.get_docs("top.gsch"))
         assert set(docs.keys()) == {"top:R1", "top:R2", "top:C1", "top:W1", "top:W2"}
 
     def test_missing_file_returns_empty(self, project_dir):
         api = FileAPI(project_dir)
-        _, docs = run_async(api.get_docs("nonexistent.nyancir"))
+        _, docs = run_async(api.get_docs("nonexistent.gsch"))
         assert docs == {}
 
 

@@ -3,7 +3,7 @@
 ; SPDX-License-Identifier: MPL-2.0
 
 (ns nyancad.mosaic.jsatom.util-test
-  "doc->state injects :x/:y defaults so Livewire-authored .nyancir
+  "doc->state injects :x/:y defaults so Livewire-authored .gsch
    files (which omit those fields) load cleanly into Mosaic. Existing
    :x/:y on Mosaic-authored entries must win over the defaults so
    round-trips stay byte-stable."
