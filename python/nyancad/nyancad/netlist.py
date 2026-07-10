@@ -125,7 +125,7 @@ def _select_corner(sections, corners):
 
 IDENTIFIER_RE = re.compile(r"\b[A-Za-z_]\w*", re.ASCII)
 VALID_IDENT_RE = re.compile(r"^[A-Za-z_]\w*$", re.ASCII)
-STRUCTURAL_TYPES = {"wire", "text", "port", "polyline", "via", "taper", "net"}
+STRUCTURAL_TYPES = {"wire", "text", "port", "polyline", "via", "taper", "net", "group"}
 
 _SIM_LANGUAGES = {
     "ngspice": ("spice",),

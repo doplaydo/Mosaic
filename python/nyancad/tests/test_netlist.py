@@ -974,6 +974,60 @@ class TestKfNetlistFromNyancad:
             {"instance": "top_S2", "port": "o2"},
         ] in data["nets"]
 
+    def test_group_device_is_transparent(self):
+        """A locked group (`type: "group"`) is a UI-only grouping of existing
+        members — it must not become a bogus circuit instance nor affect the
+        netlist of its members.
+        """
+        schem = {
+            "top": {
+                "top:IN": {
+                    "_id": "top:IN",
+                    "type": "port",
+                    "name": "in",
+                    "nets": {"P": "n_in"},
+                },
+                "top:OUT": {
+                    "_id": "top:OUT",
+                    "type": "port",
+                    "name": "out",
+                    "nets": {"P": "n_out"},
+                },
+                "top_S1": {
+                    "_id": "top_S1",
+                    "type": "straight",
+                    "name": "S1",
+                    "model": "straight",
+                    "nets": {"o1": "n_in", "o2": "n_mid"},
+                },
+                "top_S2": {
+                    "_id": "top_S2",
+                    "type": "straight",
+                    "name": "S2",
+                    "model": "straight",
+                    "nets": {"o1": "n_mid", "o2": "n_out"},
+                },
+                "group_1": {
+                    "_id": "group_1",
+                    "type": "group",
+                    "name": "group_1",
+                    "members": ["top_S1", "top_S2"],
+                },
+            },
+            "models": {
+                "models:straight": {"name": "straight", "ports": []},
+            },
+        }
+
+        netlist = kfnetlist_from_nyancad("top", schem)
+        data = _kf_data(netlist)
+
+        assert set(data["instances"]) == {"top_S1", "top_S2"}
+        assert [
+            {"instance": "top_S1", "port": "o2"},
+            {"instance": "top_S2", "port": "o1"},
+        ] in data["nets"]
+
     def test_builds_kfnetlist_ports_from_port_named_nets(self):
         schem = {
             "top": {
