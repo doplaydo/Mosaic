@@ -61,10 +61,10 @@
 (s/def ::y number?)
 (s/def ::pointer-cache (s/map-of int? (s/keys :req-un [::x ::y])))
 (s/def ::tab-index nat-int?)
-;; Ctrl-drag connectivity. ::stretch is {wire-id -> #{:start :end}} of endpoints
-;; that follow the dragged devices: present (the map) while Ctrl is held during a
+;; Shift-drag connectivity. ::stretch is {wire-id -> #{:start :end}} of endpoints
+;; that follow the dragged devices: present (the map) while Shift is held during a
 ;; drag, nil otherwise. It is the single gate — the staging preview and the commit
-;; check whether it's set. Recomputed on each Ctrl press (rare; selection/schematic
+;; check whether it's set. Recomputed on each Shift press (rare; selection/schematic
 ;; are frozen mid-drag, so the map is stable), hence no separate cache.
 (s/def ::stretch (s/nilable (s/map-of string? set?)))
 (s/def ::ui (s/keys :req [::zoom ::theme ::tool ::selected ::notebook-state ::pointer-cache ::tab-index]
@@ -1370,7 +1370,7 @@
 ;; spec for when to deref this track vs. call the builder directly.
 (def point-index (r/track #(build-point-index @schematic)))
 
-;; --- Alt-drag connectivity: stretch wires attached to dragged devices ----
+;; --- Shift-drag connectivity: stretch wires attached to dragged devices ---
 
 (defn connected-wire-ends
   "{wire-id -> #{:start :end}}: non-selected wires whose endpoint sits on a
@@ -1397,7 +1397,7 @@
    Keeping wires orthogonal: a cardinal (axis-aligned) straight bent off-axis
    becomes an hv/vh elbow that keeps the non-dragged end pointing in its original
    direction — a fixed choice that never flips mid-drag. Real diagonals (drawn
-   with Ctrl) and existing elbows are left as-is."
+   with Shift) and existing elbows are left as-is."
   [{:keys [variant] :as wire} ends dx dy]
   (let [cardinal?   (and (#{nil "d"} variant)
                          (or (zero? (:rx wire)) (zero? (:ry wire))))
@@ -1899,16 +1899,16 @@
         [xs ys] (::mouse-start @ui)
         dx (- x xs)
         dy (- y ys)
-        ctrl? (.-ctrlKey e)
+        shift? (.-shiftKey e)
         on?   (::stretch @ui)]
     (swap! ui update ::delta assoc :x dx :y dy)
-    ;; ::stretch is the live gate. Toggle it on the Ctrl edges only: compute the
+    ;; ::stretch is the live gate. Toggle it on the Shift edges only: compute the
     ;; attached-wire map on press (rare, and stable since selection/schematic are
     ;; frozen mid-drag), drop it on release; leave it untouched in between.
     (cond
-      (and ctrl? (not on?))
+      (and shift? (not on?))
       (swap! ui assoc ::stretch (connected-wire-ends @schematic @point-index (::selected @ui)))
-      (and (not ctrl?) on?)
+      (and (not shift?) on?)
       (swap! ui dissoc ::stretch))))
 
 (defn drag-wire [^js e]
@@ -1917,11 +1917,11 @@
            (fn [d]
              (let [rx (- x (:x d) 0.5)
                    ry (- y (:y d) 0.5)
-                   diagonal? (.-ctrlKey e)
+                   diagonal? (.-shiftKey e)
                    straight? (or (< (abs rx) 0.5)
                                  (< (abs ry) 0.5))]
                (cond
-                 ;; Ctrl held: diagonal
+                 ;; Shift held: diagonal
                  diagonal? (assoc d :rx rx :ry ry :variant "d")
                  ;; Axis-aligned: snap to dominant axis
                  straight? (if (> (abs rx) (abs ry))
@@ -2904,7 +2904,7 @@
         [schematic-elements
          (let [schem @schematic]
            (map #(vector % (get schem %)) sel))]]
-       ;; Ctrl-drag: attached wires are ghosted with only their flagged end moved,
+       ;; Shift-drag: attached wires are ghosted with only their flagged end moved,
        ;; so they can't ride the group translate — render them displaced instead.
        (when st
          (into [:g.staging]

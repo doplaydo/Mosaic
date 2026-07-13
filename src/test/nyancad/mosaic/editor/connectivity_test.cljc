@@ -219,6 +219,78 @@
         (reset! pform/modeldb {})))))
 
 ;; ---------------------------------------------------------------------------
+;; connected-wire-ends — Shift-drag stretch target resolution
+;; ---------------------------------------------------------------------------
+;; Contract: return {wire-id → #{:start :end}} for non-selected wires whose
+;; endpoint sits on a selected device's port. Used by Shift+drag to determine
+;; which wire ends follow the dragged devices.
+
+(deftest connected-wire-ends-single-wire
+  (testing "wire attached to a selected device at its start endpoint"
+    (let [schem (sch (resistor "R1" 0 0)       ; ports (1,0) (1,2)
+                     (wire "W1" 1 2 0 3))       ; start at R1.N (1,2)
+          pt-idx (e/build-point-index schem)
+          ends (e/connected-wire-ends schem pt-idx #{"R1"})]
+      (is (= #{"W1"} (set (keys ends))))
+      (is (= #{:start} (get ends "W1"))))))
+
+(deftest connected-wire-ends-excludes-selected-wires
+  (testing "a wire that is itself selected is excluded from stretch targets"
+    (let [schem (sch (resistor "R1" 0 0)
+                     (wire "W1" 1 2 0 3))
+          pt-idx (e/build-point-index schem)
+          ends (e/connected-wire-ends schem pt-idx #{"R1" "W1"})]
+      (is (empty? ends)))))
+
+(deftest connected-wire-ends-both-ends
+  (testing "wire connecting two selected devices has both ends flagged"
+    (let [schem (sch (resistor "R1" 0 0)       ; N at (1,2)
+                     (wire "W1" 1 2 0 2)        ; (1,2)→(1,4)
+                     (resistor "R2" 0 4))       ; P at (1,4)
+          pt-idx (e/build-point-index schem)
+          ends (e/connected-wire-ends schem pt-idx #{"R1" "R2"})]
+      (is (= #{:start :end} (get ends "W1"))))))
+
+;; ---------------------------------------------------------------------------
+;; stretch-wire — move flagged wire end(s) by (dx,dy)
+;; ---------------------------------------------------------------------------
+;; Contract: :start moves origin and compensates delta; :end moves delta only.
+;; Cardinal wires that bend off-axis become hv/vh elbows.
+
+(deftest stretch-wire-end-only
+  (testing "stretching :end moves rx/ry, leaves origin unchanged"
+    (let [w {:type "wire" :x 0 :y 0 :rx 3 :ry 0}
+          result (e/stretch-wire w #{:end} 1 2)]
+      (is (= 0 (:x result)))
+      (is (= 0 (:y result)))
+      (is (= 4 (:rx result)))
+      (is (= 2 (:ry result))))))
+
+(deftest stretch-wire-start-only
+  (testing "stretching :start moves origin and compensates rx/ry"
+    (let [w {:type "wire" :x 0 :y 0 :rx 3 :ry 0}
+          result (e/stretch-wire w #{:start} 1 0)]
+      (is (= 1 (:x result)))
+      (is (= 0 (:y result)))
+      (is (= 2 (:rx result)) "rx compensated so far end stays at x=3")
+      (is (= 0 (:ry result))))))
+
+(deftest stretch-wire-both-ends-translates
+  (testing "stretching both ends translates the wire wholesale"
+    (let [w {:type "wire" :x 0 :y 0 :rx 3 :ry 0}
+          result (e/stretch-wire w #{:start :end} 2 1)]
+      (is (= 2 (:x result)))
+      (is (= 1 (:y result)))
+      (is (= 3 (:rx result)) "rx unchanged — compensations cancel")
+      (is (= 0 (:ry result))))))
+
+(deftest stretch-wire-cardinal-becomes-elbow
+  (testing "bending a variant-d horizontal wire off-axis produces an hv elbow"
+    (let [w {:type "wire" :x 0 :y 0 :rx 3 :ry 0 :variant "d"}
+          result (e/stretch-wire w #{:end} 0 2)]
+      (is (= "hv" (:variant result))))))
+
+;; ---------------------------------------------------------------------------
 ;; build-wire-networks — cell-seeded BFS
 ;; ---------------------------------------------------------------------------
 ;; Contract: partition device-port cells into connected components, where

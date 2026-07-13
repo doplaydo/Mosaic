@@ -16,8 +16,8 @@ Every action in Mosaic should have an easy to discover button and keyboard short
 ## Modifiers
 
 * **space** momentarily selects the pan tool
-* **ctrl** draw diagonal wires when using the wire tool
-* **shift** add elements to the current selection
+* **shift** draw diagonal wires when using the wire tool; stretch attached wires when dragging devices
+* **shift** (click) add elements to the current selection
 
 # Keyboard
 
