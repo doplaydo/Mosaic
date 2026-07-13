@@ -421,6 +421,7 @@ def _coerce_props(props: dict) -> dict:
     return result
 
 
+
 def kfnetlist_from_nyancad(name, schem, *, kcl="PDK"):
     """Build a ``kfnetlist.Netlist`` directly from Mosaic ``nets``.
 

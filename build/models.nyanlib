@@ -1,0 +1,7 @@
+{
+  "models:python/nyancad/tests/fixtures/top.nyancir": {
+    "generated": true,
+    "name": "top",
+    "type": "ckt"
+  }
+}

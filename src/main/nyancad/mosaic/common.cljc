@@ -23,7 +23,7 @@
 ;; platform: PAtom (PouchDB-backed) for the web app, JsAtom (jsonc-backed)
 ;; for the VSCode webview. The :test build runs under Node without either.
 #?(:web (extend-type ^js nyancad.hipflask/PAtom reagent.ratom/IReactiveAtom)
-   :vscode (extend-type ^js nyancad.mosaic.jsatom/JsAtom reagent.ratom/IReactiveAtom)
+   :vscode (extend-type ^js nyancad.mosaic.jsatom.protocol/JsAtom reagent.ratom/IReactiveAtom)
    :test nil)
 
 (def mac? (and (exists? js/navigator)
@@ -1152,6 +1152,7 @@
       [[mirror-horizontal] "Y" "Mirror Y-axis"]
       [[delete] "Del" "Delete"]
       [[zoom-in] "Scroll" "Zoom"]
+      [[text] "T" "Text"]
       [[zoom-fit] "Home" "Zoom to fit"]]]
 
     [shortcut-table "Actions"

@@ -1,0 +1,7 @@
+.title schematic
+.lib /tmp/nyancad_archive_cache/052b5601_main/skywater-pdk-libs-sky130_fd_pr-main/combined_models/sky130.lib.spice tt
+XM1 net3 W3 0 0 sky130_fd_pr__nfet_01v8 ad=0 as=0 l=0.34u m=1 mm_ok=1 mult=1 nf=1 ng=1 pd=0 pre_layout=1 ps=0 rfmode=0 sa=0 sb=0 sd=0 trise=0 w=0.35u wmin=0.15e-6 z1=0.34e-6 z2=0.38e-6
+VV1 W3 0
+VV2 W2 0
+XM2 W2 W3 net3 W2 sky130_fd_pr__pfet_01v8 ad=0 as=0 l=0.28u m=1 mm_ok=1 mult=1 nf=1 ng=1 pd=0 pre_layout=1 ps=0 rfmode=0 sa=0 sb=0 sd=0 trise=0 w=0.35u wmin=0.15e-6 z1=0.34e-6 z2=0.38e-6
+
