@@ -7,6 +7,7 @@
    Bridges the VSCode text document model with the webview's JsAtom."
   (:require ["vscode" :as vscode]
             ["path" :as path]
+            ["fs" :as fs]
             ["child_process" :as cp]
             [clojure.string :as str]
             [nyancad.mosaic.jsatom.bridge :as bridge]
@@ -71,6 +72,18 @@
   "Extract text from a TextDocument. Separate fn so ^js hint survives go macro."
   [^js document]
   (.getText document))
+
+(defn- replace-document-contents!
+  "Replace the full contents of a TextDocument via WorkspaceEdit.
+   Extracted so ^js hints survive go macro."
+  [^js document new-content]
+  (let [old-content (.getText document)
+        edit (vscode/WorkspaceEdit.)
+        full-range (vscode/Range.
+                     (.positionAt document 0)
+                     (.positionAt document (.-length old-content)))]
+    (.replace edit (.-uri document) full-range new-content)
+    (.. vscode/workspace (applyEdit edit))))
 
 (deftype VscodeDoc [^js document]
   bridge/IHostDocument
@@ -448,6 +461,20 @@
                       atom-channels (atom {"schematic" schem-ch "models" models-ch})]
                   (.push disposables (:disposable schem-ch))
                   (.push disposables (:disposable models-ch))
+
+                  ;; Watch nyanlib on disk for external writes (e.g. Rust
+                  ;; server save_atomic). Uses fs.watchFile because build/ is
+                  ;; gitignored and VS Code's createFileSystemWatcher skips it.
+                  (let [nyanlib-path (.-fsPath nyanlib-uri)]
+                    (fs/watchFile nyanlib-path #js{:persistent false :interval 1000}
+                      (fn [^js curr ^js prev]
+                        (when (not= (.-mtimeMs curr) (.-mtimeMs prev))
+                          (go
+                            (let [disk-content (<p! (ws-read nyanlib-uri))
+                                  doc-content  (get-text nyanlib-doc)]
+                              (when (not= disk-content doc-content)
+                                (<p! (replace-document-contents! nyanlib-doc disk-content))))))))
+                    (.push disposables #js{:dispose (fn [] (fs/unwatchFile nyanlib-path))}))
 
                   ;; Message router — pass document URI for marimo (local file:// only)
                   (setup-message-router! webview atom-channels (or ws-root doc-uri) (.-uri document))

@@ -317,6 +317,32 @@
         (is (contains? state "E1"))
         (is (contains? state "E2"))))))
 
+(deftest full-document-replacement-converges
+  (testing "external process replaces the entire document (nyanlib reload scenario)"
+    (let [h (make-harness (doc1))
+          replacement "{\"NEW1\":{\"type\":\"resistor\",\"x\":5,\"y\":5},\"NEW2\":{\"type\":\"capacitor\",\"x\":10,\"y\":10}}"]
+      (external-edit! h 0 (count (host-text h)) replacement)
+      (drain! h)
+      (is (valid-json? (host-text h)))
+      (is (converged? h))
+      (let [state (doc->state (host-text h))]
+        (is (contains? state "NEW1"))
+        (is (contains? state "NEW2"))
+        (is (not (contains? state "R1")) "old content must be gone")))))
+
+(deftest full-replacement-after-webview-edit-converges
+  (testing "webview edits then external process replaces all content; external wins"
+    (let [h (make-harness (doc1))]
+      (swap! (:ja h) assoc-in ["R1" :x] 99)
+      (drain! h)
+      (let [replacement "{\"REPLACED\":{\"type\":\"note\",\"x\":0,\"y\":0}}"]
+        (external-edit! h 0 (count (host-text h)) replacement))
+      (drain! h)
+      (is (valid-json? (host-text h)))
+      (is (converged? h))
+      (is (contains? (doc->state (host-text h)) "REPLACED"))
+      (is (not (contains? (doc->state (host-text h)) "R1"))))))
+
 ;; ---------------------------------------------------------------------------
 ;; 4. Data races — seeded, deterministic interleaving of concurrent writers
 ;; ---------------------------------------------------------------------------
