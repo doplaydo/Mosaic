@@ -1015,8 +1015,9 @@
                               ::sym optical-source-elements
                               ::category "source"
                               ::template "{self.name}"
-                              ::props [{:name "power" :tooltip "Optical power (W)"}
-                                       {:name "phase" :tooltip "Phase (rad)"}]}
+                              ::props [{:name "power" :tooltip "Optical power" :unit "mW"}
+                                       {:name "phase" :tooltip "Phase" :unit "rad"}
+                                       {:name "wl" :tooltip "Wavelength" :unit "µm"}]}
              "OpticalDetector" {::bg cm/twoport-bg
                                 ::conn [{:name "p1" :x 0 :y 1 :type "photonic"}]
                                 ::sym optical-detector-elements

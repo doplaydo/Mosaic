@@ -306,6 +306,23 @@ html {
 }
 
 /* Model field in device properties (text + browse button) */
+.mosaic-app .field-with-unit {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.mosaic-app .field-with-unit > :first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.mosaic-app .unit-suffix {
+    flex-shrink: 0;
+    font-size: 0.85em;
+    opacity: 0.7;
+}
+
 .mosaic-app .field-with-extra {
     display: flex;
     gap: 5px;

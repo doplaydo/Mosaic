@@ -72,7 +72,7 @@
 (defn- leaf-editor
   "Render a single leaf field: label + input/textarea/select/csv.
    Optional extra-el is injected inline next to the input (like the model selector button)."
-  [{:keys [name tooltip type item-type options placeholder default] :or {type :input}} cursor on-change extra-el]
+  [{:keys [name tooltip type item-type options placeholder default unit] :or {type :input}} cursor on-change extra-el]
   (let [k (keyword name)
         ph (or placeholder "")
         valfn #(or (get % k) default "")
@@ -112,7 +112,9 @@
      [:label {:for name :title tooltip} name]
      (if extra-el
        [:div.field-with-extra input extra-el]
-       input)]))
+       (if unit
+         [:div.field-with-unit input [:span.unit-suffix unit]]
+         input))]))
 
 (defn- tagged-enum-editor
   "Render a tagged union: a select for the discriminant, then the matching variant's children."
