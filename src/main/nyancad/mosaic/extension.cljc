@@ -193,6 +193,9 @@
       (when (str/starts-with? (.-path resolved) (str (.-path doc-uri) "/"))
         resolved))))
 
+;; @tags on-demand symbol generation
+(def ^:private ^js host-api nil)
+
 (defn- setup-message-router!
   "Install a single message handler that dispatches by type.
    atom-channels: atom of map group -> {:edit-queue chan}
@@ -207,13 +210,27 @@
         (when-let [{:keys [edit-queue]} (get @atom-channels (.-group message))]
           (go (>! edit-queue (.-update message))))
 
-        ;; Read a file relative to document directory
+        ;; Read a file relative to document directory.
+        ;; For missing symbol SVGs, attempt on-demand generation via host API.
         "read-file"
-        (let [request-id (.-requestId message)]
-          (if-let [file-uri (safe-resolve-uri doc-uri (.-filename message))]
+        (let [request-id (.-requestId message)
+              filename (.-filename message)]
+          (if-let [file-uri (safe-resolve-uri doc-uri filename)]
             (go
               (let [content (try (<p! (ws-read file-uri))
-                                 (catch :default _e nil))]
+                                 (catch :default _e nil))
+                    content (if (or content
+                                    (nil? host-api)
+                                    (not (str/starts-with? filename "build/symbols/"))
+                                    (not (str/ends-with? filename ".svg")))
+                              content
+                              (let [fqn (-> filename
+                                            (subs (count "build/symbols/"))
+                                            (str/replace #"\.svg$" ""))]
+                                (try (<p! (.resolveSymbol host-api fqn))
+                                     (catch :default _e nil))
+                                (try (<p! (ws-read file-uri))
+                                     (catch :default _e nil))))]
                 (.postMessage webview
                   #js{:requestId request-id
                       :content content})))
@@ -551,10 +568,12 @@
     #js{:supportsMultipleEditorsPerDocument false
         :webviewOptions #js{:retainContextWhenHidden true}}))
 
+;; @tags on-demand symbol generation
 (defn activate
   "Extension activation - register custom editor providers."
-  [^js context]
+  [^js context & [^js api]]
   (js/console.log "Mosaic extension activating")
+  (set! host-api api)
   (.. context -subscriptions (push (register-schematic-provider context)))
   (.. context -subscriptions (push (register-library-provider context))))
 

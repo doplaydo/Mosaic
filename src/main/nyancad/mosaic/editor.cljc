@@ -782,8 +782,9 @@
         model-def (get @modeldb (cm/model-key model))
         model-name (or (:name model-def) model)
         ports (:ports model-def)
-        has-model? (and model (seq model) ports)
-        [width height] (if ports (cm/port-perimeter ports (:type v)) [1 1])
+        has-model? (and model (seq model) model-def)
+        has-ports? (and has-model? (seq ports))
+        [width height] (if has-ports? (cm/port-perimeter ports (:type v)) [1 1])
         all-locs (cm/port-locations ports (:type v))
         by-side (group-by :side all-locs)
         top-locs (:top by-side)
@@ -797,15 +798,15 @@
     [device size k v
      [:<>
       (circuit-designator v size width height)
-      ;; Port lines (only when model selected)
-      (when has-model?
+      ;; Port lines (only when ports exist)
+      (when has-ports?
         [:<>
          [lines (for [{:keys [x y]} top-locs] [[(+ x 0.5) (+ y 0.5)] [(+ x 0.5) (+ y 1)]])]
          [lines (for [{:keys [x y]} bottom-locs] [[(+ x 0.5) (+ y 0)] [(+ x 0.5) (+ y 0.5)]])]
          [lines (for [{:keys [x y]} right-locs] [[(+ x 0) (+ y 0.5)] [(+ x 0.5) (+ y 0.5)]])]
          [lines (for [{:keys [x y]} left-locs] [[(+ x 1) (+ y 0.5)] [(+ x 0.5) (+ y 0.5)]])]])
       ;; Port labels inside box
-      (when has-model?
+      (when has-ports?
         [:<>
          (for [{:keys [y name]} left-locs]
            (port-label v (* 1.15 grid-size) (* (+ y 0.5) grid-size) "start" "middle" name))
@@ -841,8 +842,9 @@
         model-def (get @modeldb (cm/model-key model))
         model-name (or (:name model-def) model)
         ports (:ports model-def)
-        has-model? (and model (seq model) ports)
-        [width height] (if ports (cm/port-perimeter ports (:type v)) [1 1])
+        has-model? (and model (seq model) model-def)
+        has-ports? (and has-model? (seq ports))
+        [width height] (if has-ports? (cm/port-perimeter ports (:type v)) [1 1])
         all-locs (cm/port-locations ports (:type v))
         by-side (group-by :side all-locs)
         top-locs (:top by-side)
@@ -868,7 +870,7 @@
         :points (str (* tri-left grid-size) "," (* tri-top grid-size) " "
                      (* tri-left grid-size) "," (* tri-bottom grid-size) " "
                      (* tri-right grid-size) "," (* tri-apex-y grid-size))}]
-      (when has-model?
+      (when has-ports?
         [:<>
          ;; Top ports - lines extend down to meet triangle's top edge
          [lines (for [{:keys [x y]} top-locs
@@ -889,7 +891,7 @@
                                     (+ tri-right (* port-dy (/ width (- tri-bottom tri-apex-y)))))]]
                   [[(+ x 0.5) (+ y 0.5)] [tri-x (+ y 0.5)]])]])
       ;; Port labels inside triangle
-      (when has-model?
+      (when has-ports?
         [:<>
          (for [{:keys [y name]} left-locs]
            (port-label v (* 1.15 grid-size) (* (+ y 0.5) grid-size) "start" "middle" name))
