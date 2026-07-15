@@ -141,6 +141,11 @@
            #(if eyesore? "eyesore"
                 (if (dark-mode? ui) "light" "dark")))))
 
+(defn send-to-agent
+  "No-op on web — agent integration is VS Code only."
+  [_data _label]
+  nil)
+
 (defn secondary-menu-items
   "Web-specific secondary menu items: library, pop-out notebook, login, theme toggle."
   [ui]

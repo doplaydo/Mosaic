@@ -37,5 +37,6 @@
 (defn notebook-panel [_state] nil)
 (defn secondary-menu-items [_ui] nil)
 (defn open-schematic [_model-id] nil)
+(defn send-to-agent [_data _label] nil)
 (defn resolve-symbol-url [_path] nil)
 (defn init-extra! [] nil)

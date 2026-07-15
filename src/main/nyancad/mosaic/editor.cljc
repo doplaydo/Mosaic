@@ -10,7 +10,8 @@
                 :test   nyancad.mosaic.editor.platform-test)
              :refer [group schematic modeldb snapshots simulations local
                      done? syncactive notebook-panel secondary-menu-items
-                     open-schematic resolve-symbol-url init-extra! root]]
+                     open-schematic send-to-agent resolve-symbol-url
+                     init-extra! root]]
             [clojure.spec.alpha :as s]
             [cljs.core.async :refer [go <!]]
             [clojure.math :as math]
@@ -2500,7 +2501,17 @@
                                  (::template (get models @device-type))
                                  "{self.name}")]
         [:<>
-         [:h1 (or @name key)]
+         [:div.device-header
+          [:h1 (or @name key)]
+          [:button.ask-agent
+           {:title "Ask Agent"
+            :on-click (fn [e]
+                        (.stopPropagation e)
+                        (let [device (get @schematic key)]
+                          (send-to-agent (assoc device :_id key)
+                                         (str (or @name key) " (" @device-type ")")))
+                        (cm/clear-context-menu))}
+           [cm/wand-icon]]]
          [:div.properties
           (when (and (seq @model) (not (cm/has-code-models? model-def)))
             [:a {:href "#" :on-click #(do (.preventDefault %) (open-schematic @model))} "Edit"])
@@ -3039,6 +3050,7 @@
 (defn ^:export init []
   (.addEventListener js/document "dragover" #(.preventDefault %))
   (.addEventListener js/document "drop" on-drop)
+  (.addEventListener js/document "mosaic-zoom-to-fit" (fn [_] (zoom-to-fit)))
   (init-extra!)
   (render))
 

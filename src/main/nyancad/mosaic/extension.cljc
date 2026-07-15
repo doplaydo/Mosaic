@@ -277,6 +277,24 @@
         (when (and doc-file-uri (= "file" (.-scheme doc-file-uri)))
           (.. vscode/commands (executeCommand "gdsfactoryplus.openSimulation" (.-fsPath doc-file-uri))))
 
+        ;; Send schematic element to AI agent
+        "send-to-agent"
+        (when doc-file-uri
+          (let [data (.-data message)
+                label (or (.-label message) "Schematic element")
+                kind (cond
+                       (js/Array.isArray data) "schematic-selection"
+                       (= "wire" (.-type data)) "schematic-wire"
+                       :else "schematic-component")]
+            (.. vscode/commands
+                (executeCommand "gdsfactoryplus.contributeAgentContext"
+                  #js{:kind kind
+                      :source #js{:editor "mosaic"
+                                  :filePath (.-fsPath doc-file-uri)}
+                      :data data
+                      :label label}
+                  #js{:newTab true}))))
+
         ;; Unknown — ignore
         nil))))
 
@@ -443,13 +461,18 @@
 ;; SchematicEditorProvider
 ;; ---------------------------------------------------------------------------
 
+(defonce ^:private schematic-webviews
+  ;; {uri-string -> webview} — tracks active schematic webviews for commands
+  (atom {}))
+
 (deftype SchematicEditorProvider [^js context]
   Object
   (resolveCustomTextEditor [^js _this ^js document ^js webviewpanel _token]
     (let [^js webview (.-webview webviewpanel)
           doc-uri (uri-parent (.-uri document))
           ws-root (some-> (first (.-workspaceFolders vscode/workspace)) .-uri)
-          basename (uri-basename (.-uri document) ".gsch")
+          basename (uri-basename (.-uri document) ".nyancir")
+          uri-key (.. document -uri (toString))
           disposables #js[]
           nyanlib-uri (if ws-root
                         (uri-join ws-root "build" "models.nyanlib")
@@ -493,6 +516,9 @@
                                 (<p! (replace-document-contents! nyanlib-doc disk-content))))))))
                     (.push disposables #js{:dispose (fn [] (fs/unwatchFile nyanlib-path))}))
 
+                  ;; Track this webview for the zoomToFit command
+                  (swap! schematic-webviews assoc uri-key webview)
+
                   ;; Message router — pass document URI for marimo (local file:// only)
                   (setup-message-router! webview atom-channels (or ws-root doc-uri) (.-uri document))
 
@@ -509,6 +535,7 @@
                   ;; Clean up on panel dispose
                   (.onDidDispose webviewpanel
                     (fn []
+                      (swap! schematic-webviews dissoc uri-key)
                       (when (= "file" (.. document -uri -scheme))
                         (kill-marimo! (.. document -uri -fsPath)))
                       (doseq [d disposables]
@@ -575,7 +602,15 @@
   (js/console.log "Mosaic extension activating")
   (set! host-api api)
   (.. context -subscriptions (push (register-schematic-provider context)))
-  (.. context -subscriptions (push (register-library-provider context))))
+  (.. context -subscriptions (push (register-library-provider context)))
+  (.. context -subscriptions
+      (push (.. vscode/commands
+                (registerCommand "Mosaic.schematic.zoomToFit"
+                  (fn [^js uri]
+                    (let [uri-key (when uri (.toString uri))]
+                      (when-let [^js wv (or (when uri-key (get @schematic-webviews uri-key))
+                                            (first (vals @schematic-webviews)))]
+                        (.postMessage wv #js{:type "zoom-to-fit"})))))))))
 
 (defn deactivate []
   (js/console.log "Mosaic extension deactivating")

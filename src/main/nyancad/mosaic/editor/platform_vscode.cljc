@@ -84,12 +84,21 @@
                                      :viewType "gdsfactoryplus.livewireNyancirEditor"})}
     [cm/layout-icon]]])
 
+(defn send-to-agent
+  "Send a schematic element to the AI agent as context."
+  [data label]
+  (.postMessage vscode
+    #js{:type "send-to-agent"
+        :data (clj->js data)
+        :label label}))
+
 (defn init-extra!
-  "Set up get-state handler for VS Code webview."
+  "Set up message handlers for VS Code webview."
   []
   (.addEventListener js/window "message"
     (fn [^js event]
-      (when (= (.. event -data -type) "get-state")
+      (case (.. event -data -type)
+        "get-state"
         (let [request-id (.. event -data -requestId)
               key (.. event -data -key)]
           (when (= key "preview")
@@ -99,4 +108,7 @@
                     :requestId request-id
                     :value (when svg-el
                              (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                                  (.-outerHTML svg-el)))}))))))))
+                                  (.-outerHTML svg-el)))}))))
+        "zoom-to-fit"
+        (.dispatchEvent js/document (js/CustomEvent. "mosaic-zoom-to-fit"))
+        nil))))
