@@ -1276,6 +1276,11 @@ class TestResolveSaxNetlist:
         def ring(**_settings):
             return TestResolveSaxNetlist._Cell("ring")
 
+        @staticmethod
+        def ring_single(**settings):
+            radius = settings.get("radius", 10)
+            return TestResolveSaxNetlist._Cell(f"ring_single_R{radius}")
+
     def test_preserves_model_backed_leaf_component_names(self):
         recnet = {
             "top": {
@@ -1317,6 +1322,25 @@ class TestResolveSaxNetlist:
         assert recnet["top"]["instances"]["r2"]["component"] == "ring_v1"
         assert "ring_v0" in recnet
         assert "ring_v1" in recnet
+
+    def test_expands_cell_whose_derived_name_differs_from_component(self):
+        recnet = {
+            "top": {
+                "instances": {
+                    "x1": {"component": "ring_single", "settings": {"radius": 10}},
+                    "x2": {"component": "ring_single", "settings": {"radius": 10}},
+                },
+                "nets": [],
+                "ports": [],
+            }
+        }
+
+        resolve_sax_netlist(recnet, self._Cells, model_names={"straight"})
+
+        assert recnet["top"]["instances"]["x1"]["component"] == "ring_single"
+        assert recnet["top"]["instances"]["x2"]["component"] == "ring_single"
+        assert "ring_single" in recnet
+        assert "ring_single_R10" not in recnet
 
 
 # ---------------------------------------------------------------------------

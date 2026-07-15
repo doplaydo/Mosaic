@@ -630,8 +630,9 @@ def resolve_sax_netlist(recnet, pdk_cells, model_names=None):
 
                 variant_name = f"{comp}_v{idx}" if needs_variants else comp
                 idx += 1
-                if comp in sub and comp != variant_name:
-                    sub[variant_name] = sub.pop(comp)
+                sub_top = cell.name
+                if sub_top in sub and sub_top != variant_name:
+                    sub[variant_name] = sub.pop(sub_top)
 
                 for existing_key in set(recnet.keys()) & set(sub.keys()):
                     if existing_key != variant_name:
