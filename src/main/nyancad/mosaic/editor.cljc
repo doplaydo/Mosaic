@@ -1138,7 +1138,7 @@
              "port" {::bg []
                      ::conn [{:name "P" :x 0 :y 0}]
                      ::sym port-sym
-                     ::template "{self.name}: {res.op[self.name.toLowerCase()]:.2f}V"
+                     ::template "{self.name}"
                      ::props []}
              "text" {::bg []
                      ::conn []
