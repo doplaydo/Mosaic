@@ -74,7 +74,7 @@
   "VSCode secondary menu: simulate (toolbar-group dropdown), switch to Livewire."
   [_ui]
   [:<>
-   [:a {:title "Simulate (SAX)"
+   [:a {:title "Simulate"
         :on-click #(.postMessage vscode
                                  #js{:type "open-sax-simulation"})}
     [cm/rocket-icon]]
