@@ -1276,11 +1276,6 @@ class TestResolveSaxNetlist:
         def ring(**_settings):
             return TestResolveSaxNetlist._Cell("ring")
 
-        @staticmethod
-        def ring_single(**settings):
-            radius = settings.get("radius", 10)
-            return TestResolveSaxNetlist._Cell(f"ring_single_R{radius}")
-
     def test_preserves_model_backed_leaf_component_names(self):
         recnet = {
             "top": {
@@ -1323,24 +1318,73 @@ class TestResolveSaxNetlist:
         assert "ring_v0" in recnet
         assert "ring_v1" in recnet
 
-    def test_expands_cell_whose_derived_name_differs_from_component(self):
+    class _VariantCell:
+        """Fake cell whose recursive-netlist top key may differ from ``name``.
+
+        gdsfactory keys ``get_netlist(recursive=True)`` by either the bare
+        factory name or the settings-derived name depending on the version;
+        ``top_key`` lets a test pick which convention to emulate.
+        """
+
+        def __init__(self, name: str, top_key: str) -> None:
+            self.name = name
+            self._top_key = top_key
+
+        def get_netlist(self, recursive=True):
+            return {
+                self._top_key: {
+                    "instances": {"c1": {"component": "straight"}},
+                    "nets": [],
+                    "ports": [],
+                }
+            }
+
+    class _CellsDerivedTopKey:
+        """gf convention A: recursive-netlist top key == cell.name."""
+
+        @staticmethod
+        def ring_single(**settings):
+            name = f"ring_single_R{settings.get('radius', 10)}"
+            return TestResolveSaxNetlist._VariantCell(name, name)
+
+    class _CellsBareTopKey:
+        """gf convention B: recursive-netlist top key is the bare name."""
+
+        @staticmethod
+        def ring_single(**settings):
+            name = f"ring_single_R{settings.get('radius', 10)}"
+            return TestResolveSaxNetlist._VariantCell(name, "ring_single")
+
+    @pytest.mark.parametrize(
+        "cells",
+        [_CellsDerivedTopKey, _CellsBareTopKey],
+        ids=["derived-top-key", "bare-top-key"],
+    )
+    def test_variant_expansion_robust_to_top_key_convention(self, cells):
+        """Regression: expansion must resolve regardless of how gdsfactory
+        keys the recursive-netlist top entry (bare vs settings-derived).
+        """
         recnet = {
             "top": {
                 "instances": {
                     "x1": {"component": "ring_single", "settings": {"radius": 10}},
-                    "x2": {"component": "ring_single", "settings": {"radius": 10}},
+                    "x2": {"component": "ring_single", "settings": {"radius": 15}},
                 },
                 "nets": [],
                 "ports": [],
             }
         }
 
-        resolve_sax_netlist(recnet, self._Cells, model_names={"straight"})
+        resolve_sax_netlist(recnet, cells, model_names={"straight"})
 
-        assert recnet["top"]["instances"]["x1"]["component"] == "ring_single"
-        assert recnet["top"]["instances"]["x2"]["component"] == "ring_single"
-        assert "ring_single" in recnet
+        assert recnet["top"]["instances"]["x1"]["component"] == "ring_single_v0"
+        assert recnet["top"]["instances"]["x2"]["component"] == "ring_single_v1"
+        assert "ring_single_v0" in recnet
+        assert "ring_single_v1" in recnet
+        # the original (unrenamed) top keys must not linger as required models
+        assert "ring_single" not in recnet
         assert "ring_single_R10" not in recnet
+        assert "ring_single_R15" not in recnet
 
 
 # ---------------------------------------------------------------------------

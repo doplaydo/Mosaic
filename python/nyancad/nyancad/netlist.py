@@ -534,6 +534,29 @@ def _coerce_settings(raw, accepted=None):
     }
 
 
+def _recnet_top_key(sub, fallbacks=()):
+    """Return the top-level entry key of a ``get_netlist(recursive=True)`` dict.
+
+    gdsfactory keys the top entry by either the cell's bare factory name
+    (e.g. ``ring_single``) or its settings-derived name
+    (e.g. ``ring_single_G0p27_R10_...``) depending on the version. The top is
+    the unique entry not referenced as a sub-component by any instance; if that
+    is ambiguous, fall back to the first provided name present in ``sub``.
+    """
+    referenced = {
+        inst.get("component")
+        for nl in sub.values()
+        for inst in (nl.get("instances") or {}).values()
+    }
+    tops = [key for key in sub if key not in referenced]
+    if len(tops) == 1:
+        return tops[0]
+    for name in fallbacks:
+        if name in sub:
+            return name
+    return None
+
+
 def resolve_sax_netlist(recnet, pdk_cells, model_names=None):
     """Expand hierarchical components in a SAX RecursiveNetlist using PDK cells.
 
@@ -630,8 +653,8 @@ def resolve_sax_netlist(recnet, pdk_cells, model_names=None):
 
                 variant_name = f"{comp}_v{idx}" if needs_variants else comp
                 idx += 1
-                sub_top = cell.name
-                if sub_top in sub and sub_top != variant_name:
+                sub_top = _recnet_top_key(sub, fallbacks=(cell.name, comp))
+                if sub_top is not None and sub_top != variant_name:
                     sub[variant_name] = sub.pop(sub_top)
 
                 for existing_key in set(recnet.keys()) & set(sub.keys()):
