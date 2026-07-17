@@ -33,9 +33,9 @@ between browser and VSCode environments. For example, the editor uses `JsAtom`
 ## Prerequisites
 
 - **Java 11+** (for shadow-cljs / ClojureScript compiler)
-- **Node.js 18+** and **npm**
+- **Node.js** and **npm**
 
-On macOS: `brew install node openjdk`
+Both installed via `mise install` from the repo root.
 
 ## Setup
 
