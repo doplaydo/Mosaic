@@ -196,12 +196,14 @@
 ;; @tags on-demand symbol generation
 (def ^:private ^js host-api nil)
 
+;; @tags on-demand symbol generation, mosaic livewire interop
 (defn- setup-message-router!
   "Install a single message handler that dispatches by type.
    atom-channels: atom of map group -> {:edit-queue chan}
    doc-uri: directory URI for resolving relative filenames
-   doc-uri may be any scheme (file://, vsls://, etc.)."
-  [^js webview atom-channels ^js doc-uri & [^js doc-file-uri]]
+   doc-uri may be any scheme (file://, vsls://, etc.).
+   doc-file-uri and document are present for document-backed editors."
+  [^js webview atom-channels ^js doc-uri & [^js doc-file-uri ^js document]]
   (.onDidReceiveMessage webview
     (fn [^js message]
       (case (.-type message)
@@ -253,9 +255,15 @@
 
         ;; Switch to another custom editor for the same document
         "switchEditor"
-        (when doc-file-uri
+        (when (and doc-file-uri document)
           (let [view-type (or (.-viewType message) "gdsfactoryplus.livewireNyancirEditor")]
-            (.. vscode/commands (executeCommand "vscode.openWith" doc-file-uri view-type))))
+            (go
+              (try
+                (when (<p! (.save document))
+                  (<p! (.. vscode/commands
+                           (executeCommand "vscode.openWith" doc-file-uri view-type))))
+                (catch :default e
+                  (js/console.error "Editor switch failed:" e))))))
 
         ;; State response from webview (for get-state requests)
         "state-response"
@@ -520,7 +528,7 @@
                   (swap! schematic-webviews assoc uri-key webview)
 
                   ;; Message router — pass document URI for marimo (local file:// only)
-                  (setup-message-router! webview atom-channels (or ws-root doc-uri) (.-uri document))
+                  (setup-message-router! webview atom-channels (or ws-root doc-uri) (.-uri document) document)
 
                   ;; Save SVG sidecar on document save
                   (let [save-disposable
