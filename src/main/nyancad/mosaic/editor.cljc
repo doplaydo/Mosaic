@@ -2691,12 +2691,12 @@
      [:a {:title "Rotate selected counter-clockwise [shift+r]"
           :on-click (fn [_] (transform-selected #(.rotate % -90)))}
       [cm/rotateccw]]
-     [:a {:title "Mirror about X-axis [x]"
-          :on-click (fn [_] (transform-selected #(.flipY %)))}
-      [cm/mirror-horizontal]]
-     [:a {:title "Mirror about Y-axis [y]"
+     [:a {:title "Flip Horizontally [x]"
           :on-click (fn [_] (transform-selected #(.flipX %)))}
       [cm/mirror-vertical]]
+     [:a {:title "Flip Vertically [y]"
+          :on-click (fn [_] (transform-selected #(.flipY %)))}
+      [cm/mirror-horizontal]]
      [:a {:title "Delete selected [del]"
           :on-click (fn [_] (delete-selected))}
       [cm/delete]]
@@ -2981,6 +2981,7 @@
    [cm/contextmenu]
    [cm/modal]])
 
+;; @tags editor keyboard shortcuts
 (def shortcuts {#{:v} #(add-device "vsource" (::mouse @ui))
                 #{:i} #(add-device "isource" (::mouse @ui))
                 #{:p} #(add-device "port" (::mouse @ui))
