@@ -9,20 +9,9 @@
    Extracts the oldcontent check + range computation from the extension's
    apply-updates, parameterized over IHostDocument so the same logic runs
    against a real vscode.TextDocument in production and against Microsoft's
-   vscode-languageserver-textdocument model under the :test build. The bridge
-   also owns the async apply-then-save sequencing; event-driven change
-   forwarding stays with each caller.")
-
-;; @tags nyanlib incremental desync
-(defn apply-edit-and-maybe-save!
-  "Apply an edit and, when it succeeds and auto-save? is true, save it before
-   resolving. apply-edit! and save! are functions returning promises."
-  [apply-edit! save! auto-save?]
-  (-> (apply-edit!)
-      (.then (fn [applied]
-               (if (and applied auto-save?)
-                 (save!)
-                 applied)))))
+   vscode-languageserver-textdocument model under the :test build. The async
+   apply (WorkspaceEdit) and event-driven change forwarding stay with each
+   caller — only the pure validation lives here.")
 
 (defprotocol IHostDocument
   "The three primitives apply-updates needs from a text document model."

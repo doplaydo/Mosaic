@@ -67,14 +67,6 @@
   (go (try (<p! (.. vscode/workspace -fs (stat uri))) true
            (catch :default _ false))))
 
-;; @tags nyanlib incremental desync
-(defn- apply-document-edit!
-  "Apply a WorkspaceEdit and optionally save the edited TextDocument."
-  [^js document ^js edit auto-save?]
-  (bridge/apply-edit-and-maybe-save!
-    #(.. vscode/workspace (applyEdit edit))
-    #(.save document)
-    auto-save?))
 
 (deftype VscodeDoc [^js document]
   bridge/IHostDocument
@@ -101,14 +93,12 @@
 ;; Atom channel — bidirectional sync between a TextDocument and a JsAtom
 ;; ---------------------------------------------------------------------------
 
-;; @tags nyanlib incremental desync
 (defn- create-atom-channel
   "Set up bidirectional sync between a TextDocument and a JsAtom in the webview.
    Webview→Host edits are validated (oldcontent check) and applied via WorkspaceEdit.
    Host→Webview changes are forwarded as incremental contentChanges with document.version.
-   When auto-save? is true, each successful webview edit is saved immediately.
    Returns {:enqueue-edit! fn, :disposable disposable}."
-  [^js webview ^js document group & [auto-save?]]
+  [^js webview ^js document group]
   (let [edit-queue (chan 32)]
     ;; Process edit queue with oldcontent validation. On rejection the webview
     ;; has already advanced its optimistic state, so send it an authoritative
@@ -118,7 +108,7 @@
       (when-let [update (<! edit-queue)]
         (let [edit (vscode/WorkspaceEdit.)]
           (if (apply-updates document edit update)
-            (<p! (apply-document-edit! document edit auto-save?))
+            (<p! (.. vscode/workspace (applyEdit edit)))
             (.postMessage webview
               #js{:type "resync"
                   :group group
@@ -593,7 +583,7 @@
       (set! (.-html webview) (get-libman-html document webview))
 
       ;; Create atom channel for the models document (primary)
-      (let [models-ch (create-atom-channel webview document "models" true)
+      (let [models-ch (create-atom-channel webview document "models")
             atom-channels (atom {"models" models-ch})]
         (.push disposables (:disposable models-ch))
 
