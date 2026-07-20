@@ -1163,9 +1163,8 @@
       [[copyi] (str mod-key "+C") "Copy"]
       [[cuti] (str mod-key "+X") "Cut"]
       [[pastei] (str mod-key "+V") "Paste"]
-      [[simulate] "" "SPICE Simulation"]
-      [[photonic-icon] "" "SAX Simulation"]
-      [[sync-active] "" "Open in Livewire"]
+      [[rocket-icon] "" "Simulate"]
+      [[layout-icon] "" "Open in Livewire"]
       [[help] "" "Help"]]]]
 
    [:div.actions
