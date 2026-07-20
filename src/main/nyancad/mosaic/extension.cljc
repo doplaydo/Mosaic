@@ -7,11 +7,10 @@
    Bridges the VSCode text document model with the webview's JsAtom."
   (:require ["vscode" :as vscode]
             ["path" :as path]
-            ["fs" :as fs]
             ["child_process" :as cp]
             [clojure.string :as str]
             [nyancad.mosaic.jsatom.bridge :as bridge]
-            [cljs.core.async :refer [go go-loop <! >! chan put! promise-chan]]
+            [cljs.core.async :refer [go go-loop <! chan put! close! promise-chan]]
             [cljs.core.async.interop :refer-macros [<p!]]))
 
 ;; ---------------------------------------------------------------------------
@@ -68,22 +67,14 @@
   (go (try (<p! (.. vscode/workspace -fs (stat uri))) true
            (catch :default _ false))))
 
-(defn- get-text
-  "Extract text from a TextDocument. Separate fn so ^js hint survives go macro."
-  [^js document]
-  (.getText document))
-
-(defn- replace-document-contents!
-  "Replace the full contents of a TextDocument via WorkspaceEdit.
-   Extracted so ^js hints survive go macro."
-  [^js document new-content]
-  (let [old-content (.getText document)
-        edit (vscode/WorkspaceEdit.)
-        full-range (vscode/Range.
-                     (.positionAt document 0)
-                     (.positionAt document (.-length old-content)))]
-    (.replace edit (.-uri document) full-range new-content)
-    (.. vscode/workspace (applyEdit edit))))
+;; @tags nyanlib incremental desync
+(defn- apply-document-edit!
+  "Apply a WorkspaceEdit and optionally save the edited TextDocument."
+  [^js document ^js edit auto-save?]
+  (bridge/apply-edit-and-maybe-save!
+    #(.. vscode/workspace (applyEdit edit))
+    #(.save document)
+    auto-save?))
 
 (deftype VscodeDoc [^js document]
   bridge/IHostDocument
@@ -110,12 +101,14 @@
 ;; Atom channel — bidirectional sync between a TextDocument and a JsAtom
 ;; ---------------------------------------------------------------------------
 
+;; @tags nyanlib incremental desync
 (defn- create-atom-channel
   "Set up bidirectional sync between a TextDocument and a JsAtom in the webview.
    Webview→Host edits are validated (oldcontent check) and applied via WorkspaceEdit.
    Host→Webview changes are forwarded as incremental contentChanges with document.version.
-   Returns {:edit-queue chan, :disposable disposable}."
-  [^js webview ^js document group]
+   When auto-save? is true, each successful webview edit is saved immediately.
+   Returns {:enqueue-edit! fn, :disposable disposable}."
+  [^js webview ^js document group & [auto-save?]]
   (let [edit-queue (chan 32)]
     ;; Process edit queue with oldcontent validation. On rejection the webview
     ;; has already advanced its optimistic state, so send it an authoritative
@@ -125,7 +118,7 @@
       (when-let [update (<! edit-queue)]
         (let [edit (vscode/WorkspaceEdit.)]
           (if (apply-updates document edit update)
-            (<p! (.. vscode/workspace (applyEdit edit)))
+            (<p! (apply-document-edit! document edit auto-save?))
             (.postMessage webview
               #js{:type "resync"
                   :group group
@@ -150,8 +143,43 @@
                                           #js{:offset (.-rangeOffset c)
                                               :length (.-rangeLength c)
                                               :content (.-text c)}))})))))))]
-      {:edit-queue edit-queue
+      {:enqueue-edit! #(put! edit-queue %)
        :disposable disposable})))
+
+;; @tags nyanlib incremental desync
+(defn- create-readonly-nyanlib-channel
+  "Set up a serialized, read-only channel backed directly by a file. The gfp
+   nyanlib is a generated artifact: the server is its only writer, so this
+   channel only ever reloads disk content into the webview via `resync`. It
+   never writes, so the generated library never enters VS Code's TextDocument
+   save lifecycle and cannot create editor save conflicts."
+  [^js webview ^js uri group initial-content]
+  (let [content (atom initial-content)
+        version (atom 1)
+        operation-queue (chan 32)
+        post-resync! (fn []
+                       (.postMessage webview
+                         #js{:type "resync"
+                             :group group
+                             :version @version
+                             :text @content}))]
+    (go-loop []
+      (when-let [[kind _payload] (<! operation-queue)]
+        (case kind
+          :reload
+          (try
+            (let [disk-content (<p! (ws-read uri))]
+              (when (not= disk-content @content)
+                (reset! content disk-content)
+                (swap! version inc)
+                (<p! (post-resync!))))
+            (catch :default e
+              (js/console.error "Failed to reload models.nyanlib:" (.-message e))))
+
+          nil)
+        (recur)))
+    {:reload! #(put! operation-queue [:reload nil])
+     :disposable #js{:dispose #(close! operation-queue)}}))
 
 ;; ---------------------------------------------------------------------------
 ;; Request/response — send get-state to webview, wait for state-response
@@ -199,7 +227,7 @@
 ;; @tags on-demand symbol generation, mosaic livewire interop
 (defn- setup-message-router!
   "Install a single message handler that dispatches by type.
-   atom-channels: atom of map group -> {:edit-queue chan}
+   atom-channels: atom of map group -> channel map (read-only channels omit :enqueue-edit!)
    doc-uri: directory URI for resolving relative filenames
    doc-uri may be any scheme (file://, vsls://, etc.).
    doc-file-uri and document are present for document-backed editors."
@@ -207,10 +235,11 @@
   (.onDidReceiveMessage webview
     (fn [^js message]
       (case (.-type message)
-        ;; Atom edits — route to the right atom channel by group
+        ;; Atom edits — route to the right atom channel by group.
+        ;; Read-only channels expose no :enqueue-edit!, so their updates are dropped.
         "update"
-        (when-let [{:keys [edit-queue]} (get @atom-channels (.-group message))]
-          (go (>! edit-queue (.-update message))))
+        (when-let [enqueue-edit! (:enqueue-edit! (get @atom-channels (.-group message)))]
+          (enqueue-edit! (.-update message)))
 
         ;; Read a file relative to document directory.
         ;; For missing symbol SVGs, attempt on-demand generation via host API.
@@ -249,7 +278,6 @@
                 (<p! (ws-write file-uri "{}")))
               (let [editor-id (cond
                                 (str/ends-with? filename ".gsch") "Mosaic.schematic"
-                                (str/ends-with? filename ".nyanlib") "Mosaic.library"
                                 :else "default")]
                 (<p! (.. vscode/commands (executeCommand "vscode.openWith" file-uri editor-id)))))))
 
@@ -493,36 +521,31 @@
               (when-not (<! (ws-exists? nyanlib-uri))
                 (<p! (ws-write nyanlib-uri "{}")))
 
-              ;; Open nyanlib as TextDocument — use .getText() for initial content
-              (let [nyanlib-doc (<p! (.. vscode/workspace (openTextDocument nyanlib-uri)))
-                    models-content (get-text nyanlib-doc)]
-
+              ;; Keep the generated library outside VS Code's TextDocument
+              ;; lifecycle. The server owns filesystem watching and this
+              ;; serialized channel owns reads and writes.
+              (let [models-content (<p! (ws-read nyanlib-uri))]
                 ;; Configure webview
                 (set! (.-options webview)
                       #js{:enableScripts true
                           :localResourceRoots #js[bundle-uri]})
-                (set! (.-html webview) (get-html document webview models-content (.-version nyanlib-doc)))
+                (set! (.-html webview) (get-html document webview models-content 1))
 
-                ;; Create atom channels for schematic and models documents
+                ;; The schematic remains a TextDocument. The model library is a
+                ;; direct file channel, so it cannot become an editor conflict.
                 (let [schem-ch (create-atom-channel webview document "schematic")
-                      models-ch (create-atom-channel webview nyanlib-doc "models")
+                      models-ch (create-readonly-nyanlib-channel webview nyanlib-uri "models" models-content)
                       atom-channels (atom {"schematic" schem-ch "models" models-ch})]
                   (.push disposables (:disposable schem-ch))
                   (.push disposables (:disposable models-ch))
 
-                  ;; Watch nyanlib on disk for external writes (e.g. Rust
-                  ;; server save_atomic). Uses fs.watchFile because build/ is
-                  ;; gitignored and VS Code's createFileSystemWatcher skips it.
-                  (let [nyanlib-path (.-fsPath nyanlib-uri)]
-                    (fs/watchFile nyanlib-path #js{:persistent false :interval 1000}
-                      (fn [^js curr ^js prev]
-                        (when (not= (.-mtimeMs curr) (.-mtimeMs prev))
-                          (go
-                            (let [disk-content (<p! (ws-read nyanlib-uri))
-                                  doc-content  (get-text nyanlib-doc)]
-                              (when (not= disk-content doc-content)
-                                (<p! (replace-document-contents! nyanlib-doc disk-content))))))))
-                    (.push disposables #js{:dispose (fn [] (fs/unwatchFile nyanlib-path))}))
+                  ;; The typed server subscription is the only filesystem
+                  ;; watcher. Queue a catch-up read after subscribing so a
+                  ;; write between the initial read and registration is seen.
+                  (when host-api
+                    (.push disposables
+                           (.onNyanlibChanged host-api (:reload! models-ch)))
+                    ((:reload! models-ch)))
 
                   ;; Track this webview for the zoomToFit command
                   (swap! schematic-webviews assoc uri-key webview)
@@ -570,7 +593,7 @@
       (set! (.-html webview) (get-libman-html document webview))
 
       ;; Create atom channel for the models document (primary)
-      (let [models-ch (create-atom-channel webview document "models")
+      (let [models-ch (create-atom-channel webview document "models" true)
             atom-channels (atom {"models" models-ch})]
         (.push disposables (:disposable models-ch))
 

@@ -23,7 +23,42 @@
             [nyancad.mosaic.jsatom.protocol :as protocol]
             [nyancad.mosaic.jsatom.bridge :as bridge]
             [nyancad.mosaic.jsatom.util :refer [doc->state]]
-            [cljs.core.async :refer [go go-loop chan <! put! close! timeout]]))
+            [cljs.core.async :refer [go go-loop chan <! put! close! timeout]]
+            [cljs.core.async.interop :refer-macros [<p!]]))
+
+;; ---------------------------------------------------------------------------
+;; Host edit persistence
+;; ---------------------------------------------------------------------------
+
+(deftest model-library-edits-autosave-after-successful-apply
+  (testing "autosave runs after a successful apply, but not after rejection or when disabled"
+    (async done
+      (go
+        (let [events (atom [])
+              apply! (fn [result]
+                       (fn []
+                         (swap! events conj :apply)
+                         (-> (js/Promise.resolve result)
+                             (.then (fn [applied]
+                                      (swap! events conj :applied)
+                                      applied)))))
+              save! (fn []
+                      (swap! events conj :save)
+                      (js/Promise.resolve true))]
+          (is (<p! (bridge/apply-edit-and-maybe-save! (apply! true) save! true)))
+          (is (= [:apply :applied :save] @events)
+              "save is awaited after the edit applies")
+
+          (reset! events [])
+          (is (false? (<p! (bridge/apply-edit-and-maybe-save! (apply! false) save! true))))
+          (is (= [:apply :applied] @events)
+              "a rejected edit is never saved")
+
+          (reset! events [])
+          (is (<p! (bridge/apply-edit-and-maybe-save! (apply! true) save! false)))
+          (is (= [:apply :applied] @events)
+              "ordinary document channels keep their existing save lifecycle"))
+        (done)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Host document — real TextDocument behind the IHostDocument protocol
