@@ -507,6 +507,11 @@
         (fn [resolve reject]
           (go
             (try
+              ;; Assign a distinct tab icon for the schematic editor (set early)
+              (set! (.-iconPath webviewpanel)
+                    #js{:light (uri-join (.-extensionUri context) "assets" "img" "icon" "schematic-red.svg")
+                        :dark  (uri-join (.-extensionUri context) "assets" "img" "icon" "schematic-red.svg")})
+
               ;; Ensure models.nyanlib exists
               (when-not (<! (ws-exists? nyanlib-uri))
                 (<p! (ws-write nyanlib-uri "{}")))
