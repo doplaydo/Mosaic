@@ -648,7 +648,9 @@
   [k v locs]
   (when (and (contains? @selected k) (seq locs))
     (let [[a0 b0 c0 d0 _ _] (:transform v cm/IV)   ; instance linear part (e=f=0)
-          det (- (* a0 d0) (* b0 c0))
+          ;; inverse(M) linear part. Instance transforms are rotations/flips
+          ;; (orthogonal, det ±1), so the inverse is the transpose (swap b/c).
+          inv (js/DOMMatrixReadOnly. #js [a0 c0 b0 d0 0 0])
           stem (* grid-size 0.5)   ; marker → device body edge
           clear 6                  ; perpendicular lift + gap from the body edge
           base (- stem clear)]     ; along-stem anchor: `clear` out from the edge
@@ -667,17 +669,14 @@
                         visual (if horizontal
                                  (if (neg? nx) :left :right)
                                  (if (neg? ny) :top :bottom))
-                        ;; rotate(angle): 0 for horizontal, -90 head-tilt for vertical
-                        [ra rb rc rd] (if horizontal [1 0 0 1] [0 -1 1 0])
-                        ;; inverse(M) linear part
-                        ia (/ d0 det) ib (/ (- b0) det) ic (/ (- c0) det) id (/ a0 det)
-                        ;; P = inverse(M)·rotate(angle), as matrix(pa pb pc pd)
-                        pa (+ (* ia ra) (* ic rb)) pb (+ (* ib ra) (* id rb))
-                        pc (+ (* ia rc) (* ic rd)) pd (+ (* ib rc) (* id rd))
-                        ;; pivot the whole thing about the marker so position holds
-                        e (- mx (+ (* pa mx) (* pc my)))
-                        f (- my (+ (* pb mx) (* pd my)))
-                        tmat (str "matrix(" pa " " pb " " pc " " pd " " e " " f ")")
+                        ;; counter-rotate by inverse(M), then re-orient (a -90°
+                        ;; head-tilt for ports on a horizontal edge), pivoted at
+                        ;; the marker so the label holds its position
+                        tm (-> (js/DOMMatrixReadOnly.)
+                               (.translate mx my)
+                               (.multiply inv)
+                               (cond-> (not horizontal) (.rotate -90))
+                               (.translate (- mx) (- my)))
                         ;; anchor at the base (body edge) so long labels read
                         ;; OUTWARD past the dot instead of into the symbol
                         [anchor along] (case visual
@@ -689,7 +688,7 @@
                                  :x (+ mx along) :y (- my clear)
                                  :text-anchor anchor
                                  :dominant-baseline "auto"
-                                 :transform tmat}
+                                 :transform (.toString tm)}
                name])))))
 
 ;; @tags photonic model ports
@@ -703,7 +702,10 @@
         delta (- new-size orig-size)
         offset (* (/ delta 2) grid-size)]
     (into [device new-size k v
-           [device-template v new-size]]
+           ;; Feed the real port-derived bbox; going through `device-template`
+           ;; would fall back to [1 1] (photonic builtins have no ::bg) and place
+           ;; the name against the wrong rectangle under rotation/flip.
+           (circuit-designator v new-size width height)]
           (if (zero? delta)
             (map render-element elements)
             [(into [:g {:transform (str "translate(" offset "," offset ")")}]
@@ -739,34 +741,54 @@
                  (.multiply (.inverse (transform (:transform v cm/IV))))
                  (.translate (- x) (- y)))))
 
-;; Helper: render designator at screen-space top-right corner
-(defn circuit-designator [v size width height]
+;; Render the device designator/name just outside the screen-space top-right
+;; corner of the (possibly rotated/flipped) bounding box, kept upright.
+;; The name is anchored by the transform alone: `schem-template` wraps every
+;; line in a tspan with absolute x=0, so glyphs always sit at the text-local
+;; origin and any :x/:y on the <text> element would be ignored. The transform
+;; T(centre)·M⁻¹·T(g·anchor) sends that origin to the chosen screen point and
+;; its M⁻¹ linear part cancels the device transform M, so the text reads
+;; horizontally and unmirrored in all 8 orientations. Instance transforms are
+;; rotations/flips (orthogonal, det ±1), so M⁻¹ is the transpose (swap b/c) —
+;; no .inverse()/DOMPoint, keeping the math reachable from the node test build.
+(defn designator-transform
+  "DOMMatrix that places a device-local origin just outside the screen-space
+   top-right corner of the `[a b c d e f]` `tf`-transformed bbox, and cancels
+   `tf`'s linear part so the text stays upright. Pure matrix math (transpose for
+   the orthogonal inverse), reachable from the node test build. See
+   `circuit-designator`."
+  [tf size width height]
   (let [half-size (/ size 2)
+        ;; bbox corners in grid units relative to the tile centre (the CSS
+        ;; transform-origin), so M maps them to screen offsets from the centre
         corners [[(- (+ 1 width) half-size) (- 1 half-size)]             ; top-right
                  [(- 1 half-size) (- 1 half-size)]                       ; top-left
                  [(- 1 half-size) (- (+ 1 height) half-size)]            ; bottom-left
                  [(- (+ 1 width) half-size) (- (+ 1 height) half-size)]] ; bottom-right
-        mat (transform (:transform v cm/IV))
-        rotated (map (fn [[x y]]
-                       (let [pt (.transformPoint mat (js/DOMPoint. x y))]
-                         [(.-x pt) (.-y pt)]))
-                     corners)
-        [dx dy] (apply max-key (fn [[x y]] (- x y)) rotated)
-        desig-offset-x (+ dx 0.1)
-        desig-offset-y (+ dy 0.25)]
-    (when-let [text (or (:template v)
-                        (when (seq (:model v))
-                          (cm/generate-important-template
-                            (:props (get @modeldb (cm/model-key (:model v))))))
-                        (get-in models [(:type v) ::template])
-                        "{self.name}")]
-      [:text.identifier
-       {:transform (-> (:transform v cm/IV) transform
-                       (.translate (* grid-size (/ size -2)) (* grid-size (/ size -2)))
-                       .inverse
-                       (.translate (* grid-size desig-offset-x) (* grid-size desig-offset-y))
-                       .toString)}
-       (schem-template v text)])))
+        [a b c d _ _] tf                     ; instance linear part (e=f=0)
+        screen (map (fn [[x y]] [(+ (* a x) (* c y)) (+ (* b x) (* d y))]) corners)
+        ;; screen-space top-right bbox corner (y-down → maximise x − y)
+        [sx sy] (apply max-key (fn [[x y]] (- x y)) screen)
+        ;; anchor just right of and above that corner (screen units), so the
+        ;; glyphs extend up-and-right, clear of the shape
+        ax (+ sx 0.1)
+        ay (- sy 0.15)
+        inv (js/DOMMatrixReadOnly. #js [a c b d 0 0])]  ; transpose = M⁻¹ (orthogonal)
+    (-> (js/DOMMatrixReadOnly.)
+        (.translate (* grid-size half-size) (* grid-size half-size))
+        (.multiply inv)
+        (.translate (* grid-size ax) (* grid-size ay)))))
+
+(defn circuit-designator [v size width height]
+  (when-let [text (or (:template v)
+                      (when (seq (:model v))
+                        (cm/generate-important-template
+                          (:props (get @modeldb (cm/model-key (:model v))))))
+                      (get-in models [(:type v) ::template])
+                      "{self.name}")]
+    [:text.identifier
+     {:transform (.toString (designator-transform (:transform v cm/IV) size width height))}
+     (schem-template v text)]))
 
 ;; Helper: render port label with counter-rotation
 (defn port-label [v x y anchor baseline pname]
@@ -2699,16 +2721,16 @@
       nil nil cancel]]
     [:div.toolbar-group
      [:a {:title "Rotate selected clockwise [r]"
-          :on-click (fn [_] (transform-selected #(.rotate % 90)))}
+          :on-click (fn [_] (transform-selected cm/rotate-cw))}
       [cm/rotatecw]]
      [:a {:title "Rotate selected counter-clockwise [shift+r]"
-          :on-click (fn [_] (transform-selected #(.rotate % -90)))}
+          :on-click (fn [_] (transform-selected cm/rotate-ccw))}
       [cm/rotateccw]]
      [:a {:title "Flip Horizontally [x]"
-          :on-click (fn [_] (transform-selected #(.flipX %)))}
+          :on-click (fn [_] (transform-selected cm/flip-x))}
       [cm/mirror-vertical]]
      [:a {:title "Flip Vertically [y]"
-          :on-click (fn [_] (transform-selected #(.flipY %)))}
+          :on-click (fn [_] (transform-selected cm/flip-y))}
       [cm/mirror-horizontal]]
      [:a {:title "Delete selected [del]"
           :on-click (fn [_] (delete-selected))}
@@ -3008,10 +3030,10 @@
                 #{:e} #(cancel ::eraser)
                 #{:escape} cancel
                 #{(keyword " ")} (fn [] (swap! ui #(assoc % ::tool (::prev-tool %))))
-                #{:r}        (fn [_] (transform-selected #(.rotate % 90)))
-                #{:shift :r} (fn [_] (transform-selected #(.rotate % -90)))
-                #{:x}        (fn [_] (transform-selected #(.flipX %)))
-                #{:y}        (fn [_] (transform-selected #(.flipY %)))
+                #{:r}        (fn [_] (transform-selected cm/rotate-cw))
+                #{:shift :r} (fn [_] (transform-selected cm/rotate-ccw))
+                #{:x}        (fn [_] (transform-selected cm/flip-x))
+                #{:y}        (fn [_] (transform-selected cm/flip-y))
                 #{:arrowup}    #(move-selected 0 -1)
                 #{:arrowdown}  #(move-selected 0 1)
                 #{:arrowleft}  #(move-selected -1 0)
