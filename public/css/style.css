@@ -1300,7 +1300,8 @@ circle.nc.photonic {
 }
 
 g.airwire {
-    pointer-events: none;
+    pointer-events: stroke;
+    cursor: help;
 }
 
 g.airwire path {
@@ -1309,6 +1310,7 @@ g.airwire path {
     stroke-width: 1.5;
     stroke-dasharray: 4 4;
     opacity: 0.7;
+    pointer-events: stroke;
 }
 
 /* Subcircuit (ckt) and amplifier (amp) styling */

@@ -1323,9 +1323,10 @@
 
 (defn- airwire-arc
   "A subtle dashed-red 'airwire' ratsnest arc between two grid points `p1`
-   and `p2` (each `[gx gy]`), carrying `title` as a tooltip. Returns hiccup,
-   or nil when the two points coincide. Pointer-events are disabled so the
-   arc sits above the schematic purely as a hint."
+   and `p2` (each `[gx gy]`), carrying `title` as a hover tooltip. Returns
+   hiccup, or nil when the two points coincide. The visible stroke is a help
+   target so the browser exposes the explanation without intercepting the
+   rest of the schematic."
   [key p1 p2 title]
   (let [x1 (* (+ (first p1) 0.5) grid-size)
         y1 (* (+ (second p1) 0.5) grid-size)
@@ -1361,7 +1362,7 @@
             p2 (find-port-world-pos sch (:component_id finish) (:port_name finish))]
         (when (and p1 p2)
           (airwire-arc [:poly k] p1 p2
-                       "Ratsnest: polyline endpoints are on different nets"))))))
+                       "Connection present in layout but missing in schematic"))))))
 
 (defn- attached-port-airwire [sch k v]
   (let [ap (:attached_port v)
@@ -1372,7 +1373,7 @@
             p2 (find-port-world-pos sch (:component_id ap) (:port_name ap))]
         (when (and p1 p2)
           (airwire-arc [:port k] p1 p2
-                       "Ratsnest: port marker attached to a pin on a different net"))))))
+                       "Connection present in layout but missing in schematic"))))))
 
 (defn- build-schematic-airwires [sch]
   (concat
@@ -2938,9 +2939,11 @@
        net.
 
    Match rule (both cases): silent only when both pins carry a non-nil net and
-   the two nets are equal. Any missing or differing net surfaces an arc.
+   the two nets are equal. Any missing or differing net surfaces an arc. The
+   hover text explains that the layout connection is missing from the
+   schematic.
 
-   Sits above `schematic-elements` with pointer-events:none."
+   Sits above `schematic-elements` with a stroke-only hover target."
   []
   (into [:<>] (build-schematic-airwires @schematic)))
 
