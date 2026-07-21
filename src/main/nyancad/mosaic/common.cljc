@@ -320,8 +320,6 @@
     "wire" "W"
     "port" "P"
     "amp" "U"
-    "OpticalSource" "LS"
-    "OpticalDetector" "PD"
     "X"))
 
 (defn transform-direction
@@ -362,7 +360,6 @@
 ; Device type specs
 (def device-types #{"pmos" "nmos" "npn" "pnp" "resistor" "capacitor"
                     "inductor" "vsource" "isource" "diode" "led" "photodiode" "modulator"
-                    "OpticalSource" "OpticalDetector"
                     "ckt" "amp"
                     "straight" "bend" "sbend" "taper" "transition"
                     "terminator" "crossing" "ring-single" "ring-double" "spiral"
@@ -374,7 +371,7 @@
 
 (s/def ::type (clojure.set/union device-types schematic-only-types))
 
-(s/def ::variant #{"hv" "vh" "d" "ground" "supply" "text"})
+(s/def ::variant #{"hv" "vh" "d" "ground" "supply" "text" "emitter" "detector"})
 ;; Port-name keys are keywords in the in-memory representation (round-trip
 ;; through json->clj keywordizes object keys); net-name values are strings.
 (s/def ::nets (s/map-of keyword? string?))
@@ -430,9 +427,23 @@
 
 ; Parameter specs for unified props system
 (s/def ::tooltip string?)
+(s/def ::variants (s/coll-of ::variant :kind set?))
+(s/def ::unit string?)
+(s/def ::default any?)
 (s/def ::parameter (s/keys :req-un [::name]
-                           :opt-un [::tooltip]))
+                           :opt-un [::tooltip ::variants ::unit ::default]))
 (s/def ::props (s/coll-of ::parameter :kind vector?))
+
+(defn visible-props
+  "Filter a props vector to those visible for the given port `variant`.
+
+   A parameter with no `:variants` key is always visible; a parameter with a
+   `:variants` set is visible only when `variant` is a member. Preserves order."
+  [props variant]
+  (filterv (fn [p]
+             (or (not (:variants p))
+                 (contains? (:variants p) variant)))
+           props))
 
 (s/def ::symbol (s/nilable string?))
 (s/def ::model-def (s/keys :req-un [::name]
@@ -1096,6 +1107,8 @@
                "port" (rc/inline "icons/port.svg")
                "ground" (rc/inline "icons/ground.svg")
                "supply" (rc/inline "icons/supply.svg")
+               "emitter" (rc/inline "icons/emitter.svg")
+               "detector" (rc/inline "icons/detector.svg")
                "straight" (rc/inline "icons/straight.svg")
                "bend" (rc/inline "icons/bend.svg")
                "sbend" (rc/inline "icons/sbend.svg")
@@ -1117,8 +1130,6 @@
                "photodiode" (rc/inline "icons/photodiode.svg")
                "modulator" (rc/inline "icons/modulator.svg")
                "grating-coupler" (rc/inline "icons/grating-coupler.svg")
-               "OpticalSource" (rc/inline "icons/OpticalSource.svg")
-               "OpticalDetector" (rc/inline "icons/OpticalDetector.svg")
                "")]
     [:span.device-icon {:dangerouslySetInnerHTML (r/unsafe-html icon)}]))
 

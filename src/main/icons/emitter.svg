@@ -1,3 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+
+<!--
+SPDX-FileCopyrightText: 2026 GDSFactory
+
+SPDX-License-Identifier: CC-BY-NC-SA-4.0
+-->
+
+<!-- Ideal optical source: classic 24-ray radiating "sun". An emitter-variant
+     port behind the scenes; this is the dev OpticalSource glyph. -->
 <svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
   <line x1="20" y1="20" x2="37.0"  y2="20.0"  stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
   <line x1="20" y1="20" x2="30.63" y2="22.85" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>

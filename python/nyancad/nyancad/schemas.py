@@ -250,6 +250,27 @@ class PortEntry(BaseModel):
     type: Literal["electric", "photonic"] = Field("electric", description="Port type")
 
 
+class Parameter(BaseModel):
+    """A parameter definition in a model's ``props`` list.
+
+    Mirrors the ``::parameter`` clojure.spec in common.cljc: a required ``name``
+    plus optional ``tooltip``/``unit``, an optional ``default`` of any JSON type,
+    and an optional ``variants`` set (serialized as a list) that restricts the
+    parameter to specific port variants (e.g. ``emitter``).
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(..., description="Parameter name")
+    tooltip: str | None = Field(None, description="Human-readable description")
+    unit: str | None = Field(None, description="Display unit suffix (e.g. 'mW')")
+    default: Any | None = Field(None, description="Default value (any JSON type)")
+    variants: list[str] | None = Field(
+        None,
+        description="Port variants this parameter applies to (e.g. ['emitter'])",
+    )
+
+
 class ModelMetadata(BaseModel):
     """Component model metadata from the library.
 
@@ -296,9 +317,7 @@ class ModelMetadata(BaseModel):
     ports: list[PortEntry] | None = Field(
         None, description="Port definitions as typed entries with side"
     )
-    props: list[dict[str, str]] | None = Field(
-        None, description="Parameter definitions"
-    )
+    props: list[Parameter] | None = Field(None, description="Parameter definitions")
 
     # Symbol graphics
     symbol: str | None = Field(

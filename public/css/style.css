@@ -1414,7 +1414,9 @@ svg.eyesore {
 }
 
 .eyesore g.device.port.supply polyline,
-.eyesore g.device.port.ground polyline {
+.eyesore g.device.port.ground polyline,
+.eyesore g.device.port.emitter polyline,
+.eyesore g.device.port.detector polyline {
     stroke: var(--canvas-stroke);
     fill: transparent;
 }

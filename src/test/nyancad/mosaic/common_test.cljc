@@ -487,6 +487,28 @@
       (is (= {:x 3} (cm/redo ut))))))
 
 ;; ---------------------------------------------------------------------------
+;; visible-props — filter a props vector by port variant
+;; ---------------------------------------------------------------------------
+;;
+;; Contract: a parameter without a :variants key is always visible; a parameter
+;; with a :variants set is visible only when the given variant string is a
+;; member of that set. The function preserves order and returns a vector.
+
+(deftest visible-props-filters-by-variant
+  (testing "a prop with no :variants is always visible"
+    (is (= [{:name "a"}] (cm/visible-props [{:name "a"}] "emitter")))
+    (is (= [{:name "a"}] (cm/visible-props [{:name "a"}] nil))))
+  (testing "a prop with :variants shows only when variant is a member"
+    (let [emitter-props [{:name "wl" :variants #{"emitter"}}]]
+      (is (= emitter-props (cm/visible-props emitter-props "emitter")))
+      (is (= [] (cm/visible-props emitter-props "detector")))
+      (is (= [] (cm/visible-props emitter-props nil)))))
+  (testing "mixed list keeps unscoped and matching-variant props in order"
+    (let [props [{:name "name"} {:name "wl" :variants #{"emitter"}}]]
+      (is (= props (cm/visible-props props "emitter")))
+      (is (= [{:name "name"}] (cm/visible-props props "detector"))))))
+
+;; ---------------------------------------------------------------------------
 ;; World-frame flips — flip-x, flip-y
 ;; ---------------------------------------------------------------------------
 ;;

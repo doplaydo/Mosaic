@@ -271,8 +271,10 @@ def kf_component_name(dev_id, dev, models):
     """Resolve a Mosaic device to the component name used in kfnetlist/SAX."""
     model_id = dev.get("model")
     if not model_id:
-        # Built-in types (e.g. OpticalSource, OpticalDetector) carry no library
-        # model reference — the device type is the component name directly.
+        # Built-in device types carry no library model reference — the device
+        # type is the component name directly. (Ideal photonic source/detector
+        # are not components but ``type: "port"`` variants, so they never reach
+        # this path: they go through ``create_port`` as top-level exposed ports.)
         dev_type = dev.get("type")
         if dev_type:
             return dev_type

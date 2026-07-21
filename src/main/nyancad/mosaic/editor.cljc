@@ -138,7 +138,7 @@
   (when-let [st (cm/redo undotree)]
     (restore st)))
 
-(declare drag-start drag-end eraser-drag models on-pointer-down-element on-pointer-move-element on-pointer-up-bg double-click device-template circuit-designator device-context-menu)
+(declare drag-start drag-end eraser-drag models resolve-field on-pointer-down-element on-pointer-move-element on-pointer-up-bg double-click device-template circuit-designator device-context-menu)
 
 (defn device [size k v & elements]
   (assert (js/isFinite size))
@@ -149,7 +149,7 @@
                     :style {:transform (.toString (.translate (transform (:transform v cm/IV)) (* (:x v) grid-size) (* (:y v) grid-size)))
                             :transform-origin (str (* (+ (:x v) (/ size 2)) grid-size) "px "
                                                    (* (+ (:y v) (/ size 2)) grid-size) "px")}
-                    :class [(:type v) (:variant v) (::category (get models (:type v))) (when (contains? @selected k) :selected)]}]
+                    :class [(:type v) (:variant v) (resolve-field (get models (:type v)) ::category v) (when (contains? @selected k) :selected)]}]
         elements))
 
 (defn port [x y port-type]
@@ -253,10 +253,20 @@
       content]]))
 
 (defn device-template [dev size]
-  (let [bg (::bg (get models (:type dev)))
+  (let [bg (resolve-field (get models (:type dev)) ::bg dev)
         [bg-w bg-h] (if (vector? bg) bg [1 1])]
     (circuit-designator dev size bg-w bg-h)))
 
+;; Plain port markers (regular exposed port, ground, supply, text). The ideal
+;; photonic source/detector are ALSO `port` instances behind the scenes (so SAX
+;; and everything else treat them as ordinary exposed ports; only the circulax
+;; testbench reads `port.variant`), but they render as full-size components —
+;; the classic optical-source "sun" and double-ring photodetector with a tetris
+;; background and an adjacent port. For those variants the `port` model's
+;; `::sym` dispatch map resolves to `optical-source-elements`/
+;; `optical-detector-elements` (see `resolve-field`), so they never reach this
+;; function.
+;; @tags circulax simulation
 (defn port-sym [key label]
   [device 1 key label
    (case (:variant label)
@@ -290,6 +300,52 @@
     (if (nil? (:variant label))
       (schem-template label (get label :template (get-in models ["port" ::template])))
       (:name label "net"))]])
+
+;; Ideal optical source symbol: 24-ray "sun", alternating long (r=0.42) / short
+;; (r=0.28) rays at 15° intervals. Wire [[1.92 1.5] [2.5 1.5]] connects the 0°
+;; ray tip to the adjacent port p1 at (2,1). Drawn at ::size 3 with a tetris
+;; background — the `emitter` case of the `port` model's `::sym` dispatch map.
+;; @tags circulax simulation
+(def optical-source-elements
+  {::size 3
+   ::elements [[:lines [[[1.5 1.5] [1.92  1.5  ]]   ;   0° long
+                        [[1.5 1.5] [1.77  1.572]]   ;  15° short
+                        [[1.5 1.5] [1.864 1.71 ]]   ;  30° long
+                        [[1.5 1.5] [1.698 1.698]]   ;  45° short
+                        [[1.5 1.5] [1.71  1.864]]   ;  60° long
+                        [[1.5 1.5] [1.572 1.77 ]]   ;  75° short
+                        [[1.5 1.5] [1.5   1.92 ]]   ;  90° long
+                        [[1.5 1.5] [1.428 1.77 ]]   ; 105° short
+                        [[1.5 1.5] [1.29  1.864]]   ; 120° long
+                        [[1.5 1.5] [1.302 1.698]]   ; 135° short
+                        [[1.5 1.5] [1.136 1.71 ]]   ; 150° long
+                        [[1.5 1.5] [1.23  1.572]]   ; 165° short
+                        [[1.5 1.5] [1.08  1.5  ]]   ; 180° long
+                        [[1.5 1.5] [1.23  1.428]]   ; 195° short
+                        [[1.5 1.5] [1.136 1.29 ]]   ; 210° long
+                        [[1.5 1.5] [1.302 1.302]]   ; 225° short
+                        [[1.5 1.5] [1.29  1.136]]   ; 240° long
+                        [[1.5 1.5] [1.428 1.23 ]]   ; 255° short
+                        [[1.5 1.5] [1.5   1.08 ]]   ; 270° long
+                        [[1.5 1.5] [1.572 1.23 ]]   ; 285° short
+                        [[1.5 1.5] [1.71  1.136]]   ; 300° long
+                        [[1.5 1.5] [1.698 1.302]]   ; 315° short
+                        [[1.5 1.5] [1.864 1.29 ]]   ; 330° long
+                        [[1.5 1.5] [1.77  1.428]]   ; 345° short
+                        [[1.92  1.5] [2.5  1.5  ]]]]]})
+
+;; Photodetector: double-walled circle (one grid cell) with two photon arrows
+;; (↘), wire to the adjacent port p1 at (0,1). Circle centered at canvas centre
+;; (75,75)px = grid (1.5,1.5). Outer r=22px fits in a 50×50 cell. Drawn at
+;; ::size 3 with a tetris background — used for the `detector` port variant.
+;; @tags circulax simulation
+(def optical-detector-elements
+  {::size 3
+   ::elements [[:lines [[[0.5 1.5] [1.06 1.5]]]]
+               [:circle.outline {:cx 1.5 :cy 1.5 :r 0.44}]
+               [:circle.outline {:cx 1.5 :cy 1.5 :r 0.28}]
+               [:path {:d "M73,67 L83,77 M80,77 L83,77 L83,73"}]
+               [:path {:d "M67,73 L77,83 M73,83 L77,83 L77,80"}]]})
 
 (defn mosfet-sym [k v]
   (let [shape [[[0.5 1.5]
@@ -363,48 +419,6 @@
                [:circle.outline {:cx 1.5 :cy 1.5 :r 0.4}]
                [:text {:x 75 :y 70 :text-anchor "middle"} "+"]
                [:text {:x 75 :y 90 :text-anchor "middle"} "−"]]})
-
-;; 24-ray sun: alternating long (r=0.42) / short (r=0.28) rays at 15° intervals.
-;; Wire [[1.92 1.5] [2.5 1.5]] connects 0° ray tip to port p1.
-;; @tags circulax simulation
-(def optical-source-elements
-  {::size 3
-   ::elements [[:lines [[[1.5 1.5] [1.92  1.5  ]]   ;   0° long
-                        [[1.5 1.5] [1.77  1.572]]   ;  15° short
-                        [[1.5 1.5] [1.864 1.71 ]]   ;  30° long
-                        [[1.5 1.5] [1.698 1.698]]   ;  45° short
-                        [[1.5 1.5] [1.71  1.864]]   ;  60° long
-                        [[1.5 1.5] [1.572 1.77 ]]   ;  75° short
-                        [[1.5 1.5] [1.5   1.92 ]]   ;  90° long
-                        [[1.5 1.5] [1.428 1.77 ]]   ; 105° short
-                        [[1.5 1.5] [1.29  1.864]]   ; 120° long
-                        [[1.5 1.5] [1.302 1.698]]   ; 135° short
-                        [[1.5 1.5] [1.136 1.71 ]]   ; 150° long
-                        [[1.5 1.5] [1.23  1.572]]   ; 165° short
-                        [[1.5 1.5] [1.08  1.5  ]]   ; 180° long
-                        [[1.5 1.5] [1.23  1.428]]   ; 195° short
-                        [[1.5 1.5] [1.136 1.29 ]]   ; 210° long
-                        [[1.5 1.5] [1.302 1.302]]   ; 225° short
-                        [[1.5 1.5] [1.29  1.136]]   ; 240° long
-                        [[1.5 1.5] [1.428 1.23 ]]   ; 255° short
-                        [[1.5 1.5] [1.5   1.08 ]]   ; 270° long
-                        [[1.5 1.5] [1.572 1.23 ]]   ; 285° short
-                        [[1.5 1.5] [1.71  1.136]]   ; 300° long
-                        [[1.5 1.5] [1.698 1.302]]   ; 315° short
-                        [[1.5 1.5] [1.864 1.29 ]]   ; 330° long
-                        [[1.5 1.5] [1.77  1.428]]   ; 345° short
-                        [[1.92  1.5] [2.5  1.5  ]]]]]})
-
-;; Photodetector: double-walled circle (one grid cell) with two photon arrows (↘), wire to p1.
-;; Circle centered at canvas center (75,75)px = grid (1.5,1.5). Outer r=22px fits in 50×50 cell.
-;; @tags circulax simulation
-(def optical-detector-elements
-  {::size 3
-   ::elements [[:lines [[[0.5 1.5] [1.06 1.5]]]]
-               [:circle.outline {:cx 1.5 :cy 1.5 :r 0.44}]
-               [:circle.outline {:cx 1.5 :cy 1.5 :r 0.28}]
-               [:path {:d "M73,67 L83,77 M80,77 L83,77 L83,73"}]
-               [:path {:d "M67,73 L77,83 M73,83 L77,83 L77,80"}]]})
 
 (defn diode-sym [k v]
   (let [shape [[[1.5 0.5] [1.5 1.4]]
@@ -1033,20 +1047,6 @@
                         ::props [{:name "dc" :tooltip "DC current" :spice "dc"}
                                  {:name "ac" :tooltip "AC current" :spice "ac"}
                                  tran-field]}
-             "OpticalSource" {::bg cm/twoport-bg
-                              ::conn [{:name "p1" :x 2 :y 1 :type "photonic"}]
-                              ::sym optical-source-elements
-                              ::category "source"
-                              ::template "{self.name}"
-                              ::props [{:name "power" :tooltip "Optical power" :unit "mW"}
-                                       {:name "phase" :tooltip "Phase" :unit "rad"}
-                                       {:name "wl" :tooltip "Wavelength" :unit "µm"}]}
-             "OpticalDetector" {::bg cm/twoport-bg
-                                ::conn [{:name "p1" :x 0 :y 1 :type "photonic"}]
-                                ::sym optical-detector-elements
-                                ::category "photonic-active"
-                                ::template "{self.name}"
-                                ::props []}
              "diode" {::bg cm/twoport-bg
                       ::conn cm/twoport-conn
                       ::sym #'diode-sym
@@ -1157,11 +1157,30 @@
                          ;; `schematic-airwires` layer instead.
                          ::sym nil
                          ::props []}
-             "port" {::bg []
-                     ::conn [{:name "P" :x 0 :y 0}]
-                     ::sym port-sym
+             ;; Ideal photonic source/detector are `port` instances (so SAX and
+             ;; everything else treat them as ordinary exposed ports; only the
+             ;; circulax testbench reads `port.variant`), but they render as
+             ;; full-size components with the classic optical artwork, a tetris
+             ;; background and a single adjacent port — exactly the dev
+             ;; OpticalSource/OpticalDetector look. `::bg`/`::conn`/`::sym`/
+             ;; `::category` are per-variant dispatch maps (resolved by
+             ;; `resolve-field`): `emitter`/`detector` get `::size 3` component
+             ;; geometry (one photonic pin `P`, the sun/ring symbol), everything
+             ;; else the plain size-1 port. The pin keeps the port net-key `P`,
+             ;; so connectivity is identical to a plain port.
+             ;; @tags circulax simulation
+             "port" {::bg   {"emitter" cm/twoport-bg, "detector" cm/twoport-bg, ::default []}
+                     ::conn {"emitter"  [{:name "P" :x 2 :y 1 :type "photonic"}]
+                             "detector" [{:name "P" :x 0 :y 1 :type "photonic"}]
+                             ::default  [{:name "P" :x 0 :y 0}]}
+                     ::sym  {"emitter" optical-source-elements
+                             "detector" optical-detector-elements
+                             ::default  port-sym}
+                     ::category {"emitter" "source", "detector" "photonic-active", ::default nil}
                      ::template "{self.name}"
-                     ::props []}
+                     ::props [{:name "power" :variants #{"emitter"} :tooltip "Optical power"                           :unit "mW"  :default 1.0}
+                              {:name "phase" :variants #{"emitter"} :tooltip "Phase"                                   :unit "rad" :default 0.0}
+                              {:name "wl"    :variants #{"emitter"} :tooltip "Wavelength (or sweep \"start;stop;num\")" :unit "µm"  :default "1.5;1.6;300"}]}
              "text" {::bg []
                      ::conn []
                      ::sym text-sym
@@ -1171,6 +1190,23 @@
                       ::conn []
                       ::sym nil
                       ::props []}})
+
+(defn resolve-field
+  "Value of model field `k` for device `dev`. A field whose value is a map with
+   a `::default` key is a per-variant dispatch table — look it up by the
+   device's `:variant`, falling back to `::default`. Any other value (a plain
+   `[w h]`/conn vector, an elements map, a `[k v]` renderer fn) is returned
+   verbatim. The `::default` key both marks the map as a dispatch table and
+   supplies the fallback, so it never clashes with a `::sym` elements map (which
+   has no `::default`). Consumed by every reader of the model geometry —
+   rendering (`get-model`), connection indexing (`builtin-locations`,
+   `device-port-types`), placement (`add-device`, `drag-staged-device`) and the
+   `::category` styling class — so a variant's footprint stays self-consistent."
+  [mod k dev]
+  (let [v (get mod k)]
+    (if (and (map? v) (contains? v ::default))
+      (get v (:variant dev) (::default v))
+      v)))
 
 (defn rotate-shape
   ([shape transform devx devy]
@@ -1209,11 +1245,11 @@
          (zero? ry) (map #(vector % y) (exrange x rx))     ; horizontal
          :else []))]))
 
-(defn builtin-locations [{:keys [:x :y :type :transform]}]
+(defn builtin-locations [{:keys [:x :y :type :transform] :as dev}]
   (let [transform (or transform cm/IV)
         mod (get models type)
-        conn (::conn mod)
-        bg (::bg mod)
+        conn (resolve-field mod ::conn dev)
+        bg (resolve-field mod ::bg dev)
         [w h] (when (vector? bg) bg)
         size (if (and (number? w) (number? h))
                (+ 2 (max w h))
@@ -1257,8 +1293,8 @@
       (= cell "polyline") nil
       (and (contains? models cell) (::conn (get models cell)))
       (let [mod (get models cell)
-            conn (::conn mod)
-            bg (::bg mod)
+            conn (resolve-field mod ::conn dev)
+            bg (resolve-field mod ::bg dev)
             [w h] (when (vector? bg) bg)
             size (if (and (number? w) (number? h))
                    (+ 2 (max w h))
@@ -1977,7 +2013,7 @@
 
 (defn drag-staged-device [e]
   (let [[x y] (cm/viewbox-coord e)
-        bg (get-in models [(:type @staging) ::bg])
+        bg (resolve-field (get models (:type @staging)) ::bg @staging)
         [width height] (when (vector? bg) bg)
         ;; Unrounded: the placement ghost follows the cursor smoothly, like the
         ;; drag ghost; commit-staged rounds so it snaps to the grid on drop.
@@ -2271,11 +2307,13 @@
 ;; @tags photonic model ports
 (defn get-model
   [layer model k v]
-  (let [model-entry (get models (:type model)
-                         {::bg #'circuit-shape
-                          ::conn #'circuit-conn
-                          ::sym #'circuit-sym})
-        m (get model-entry layer)]
+  (let [model-entry (or (get models (:type model))
+                        {::bg #'circuit-shape
+                         ::conn #'circuit-conn
+                         ::sym #'circuit-sym})
+        ;; resolve per-variant dispatch maps to concrete data/renderer BEFORE the
+        ;; cond, so `(fn? m)` only ever sees genuine [k v] renderers
+        m (resolve-field model-entry layer model)]
     (cond
       ;; Explicit no-symbol model (e.g. polyline): render nothing. Its airwire
       ;; ratsnest is drawn by the `schematic-airwires` layer instead.
@@ -2287,7 +2325,7 @@
       (fn? m) ^{:key k} [m k v]
       (map? m) ^{:key k} [render-symbol-data m k v]
       (= layer ::bg) ^{:key k} [draw-background m k v]
-      (= layer ::conn) (let [bg (::bg model-entry)
+      (= layer ::conn) (let [bg (resolve-field model-entry ::bg model)
                              [w h] (when (vector? bg) bg)
                              size (if (and (number? w) (number? h))
                                     (+ 2 (max w h))
@@ -2360,7 +2398,7 @@
 
 (defn add-device [cell [x y] & args]
   (let [kwargs (apply array-map args)
-        bg (get-in models [cell ::bg])
+        bg (resolve-field (get models cell) ::bg (assoc kwargs :type cell))
         [width height] (when (vector? bg) bg)
         mx (math/round (- x (/ (or width 0) 2) (if width 1 0)))
         my (math/round (- y (/ (or height 0) 2) (if height 1 0)))]
@@ -2578,7 +2616,8 @@
           ; Get properties from built-in device and model
           (let [device-props (::props (get models @device-type) [])
                 model-props (mapv cm/schema->field-type (:props model-def []))
-                all-props (concat device-props model-props)
+                all-props (cm/visible-props (concat device-props model-props)
+                                            (get-in @schematic [key :variant]))
                 prop-in-template? (fn [path]
                                     (let [path-str (clojure.string/join "." (map clojure.core/name path))
                                           needle (str "self.props." path-str)
@@ -2707,6 +2746,20 @@
               :variant "text"
               :transform (cm/transform-vec (.rotate cm/I 90))))
 
+;; Ideal photonic source/detector are placed as `port` variants (like ground
+;; and supply), not components. Unlike ground/supply they take no fixed :name —
+;; each is a distinct exposed port, so commit-staged auto-names them uniquely.
+;; They render as full-size components (via the `port` model's per-variant
+;; `::sym`/`::bg`/`::conn` dispatch maps); no default transform is applied — the
+;; source symbol carries its port on the right and the detector on the left,
+;; exactly as on dev.
+;; @tags circulax simulation
+(defn add-emitter [coord]
+  (add-device "port" coord :variant "emitter"))
+
+(defn add-detector [coord]
+  (add-device "port" coord :variant "detector"))
+
 (defn menu-items []
   [:<>
    [:div.primary
@@ -2818,14 +2871,14 @@
               :on-pointer-up #(add-device "capacitor" (cm/viewbox-coord %))}
      [cm/device-icon "capacitor"]]]
    [variant-tray
-    [:button {:title "Add optical source"
-              :class (device-active "OpticalSource")
-              :on-pointer-up #(add-device "OpticalSource" (cm/viewbox-coord %))}
-     [cm/device-icon "OpticalSource"]]
-    [:button {:title "Add optical detector"
-              :class (device-active "OpticalDetector")
-              :on-pointer-up #(add-device "OpticalDetector" (cm/viewbox-coord %))}
-     [cm/device-icon "OpticalDetector"]]]])
+    [:button {:title "Add optical source (ideal emitter port)"
+              :class (device-active "port" "emitter")
+              :on-pointer-up #(add-emitter (cm/viewbox-coord %))}
+     [cm/device-icon "emitter"]]
+    [:button {:title "Add optical detector (ideal detector port)"
+              :class (device-active "port" "detector")
+              :on-pointer-up #(add-detector (cm/viewbox-coord %))}
+     [cm/device-icon "detector"]]]])
 
 (defn schematic-elements [schem]
   [:<>
