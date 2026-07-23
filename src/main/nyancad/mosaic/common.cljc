@@ -1080,10 +1080,12 @@
             [:button {:on-click #(reset! modal-content nil)} "Cancel"]
             [:input {:type "submit" :value "Ok"}]]]))
 
+;; @tags validator semantics
 (defn alert [text]
   (reset! modal-content
           [:div [:p text]
-           [:button {:on-click #(reset! modal-content nil)} "Ok"]]))
+           [:button {:on-click #(reset! modal-content nil)} "Ok"]])
+  nil)
 
 (defn set-context-menu [x y body]
   (reset! context-content {:x x :y y :body body}))

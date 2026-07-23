@@ -1923,9 +1923,8 @@
         with-props (if defaults
                      (update named :props #(merge defaults %))
                      named)]
-    (when (s/valid? :nyancad.mosaic.common/device with-props)
-      (swap! schematic assoc id with-props)
-      (post-action!))))
+    (swap! schematic assoc id with-props)
+    (post-action!)))
 
 (defn transform-selected [tf]
   (let [f (comp transform-vec tf transform)
@@ -3134,10 +3133,8 @@
                              :x (Math/round x)
                              :y (Math/round y)}
                       (seq defaults) (assoc :props defaults))]
-            (if (s/valid? :nyancad.mosaic.common/device dev)
-              (do (swap! schematic assoc (str group sep name) dev)
-                  (post-action!))
-              (js/console.warn "Invalid device from drop:" (s/explain-str :nyancad.mosaic.common/device dev)))))))))
+            (swap! schematic assoc (str group sep name) dev)
+            (post-action!)))))))
 
 (defn ^:export init []
   (.addEventListener js/document "dragover" #(.preventDefault %))

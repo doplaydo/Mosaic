@@ -567,3 +567,17 @@
     (is (= [0 -1 1 0 0 0] (round6 (via-mat cm/rotate-ccw [1 0 0 1 0 0])))))
   (testing "pre-multiplies (world frame) even when flipped"
     (is (= [0 1 1 0 0 0] (round6 (via-mat cm/rotate-ccw [-1 0 0 1 0 0]))))))
+
+;; ---------------------------------------------------------------------------
+;; alert — returns nil so validator or-short-circuit is falsey on rejection
+;; ---------------------------------------------------------------------------
+;; Contract (spec "validator function"): cm/alert fires the modal as a side
+;; effect and returns nil, so #(or (s/valid? ::spec %) (cm/alert ...)) returns
+;; falsey when the spec fails. reset! returns its new value (a truthy Hiccup
+;; vector); if alert returned that, the validator would never reject.
+
+(deftest alert-returns-nil
+  (testing "alert returns nil even though reset! returns the new value"
+    (let [ret (cm/alert "test message")]
+      (is (nil? ret) "alert must return nil so validators see a falsey rejection"))
+    (is (some? @cm/modal-content) "modal-content should have been set as a side effect")))
