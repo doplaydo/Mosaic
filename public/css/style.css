@@ -721,21 +721,6 @@ html {
     border-spacing: 0;
     width: 100%;
     box-sizing: border-box;
-    padding-left: 65px;
-    position: relative;
-}
-
-.mosaic-container .menu::before {
-    content: '';
-    position: absolute;
-    left: 15px;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 24px;
-    height: 24px;
-    background-color: #e05050;
-    -webkit-mask: url(icons/Logo.svg) no-repeat center / contain;
-    mask: url(icons/Logo.svg) no-repeat center / contain;
 }
 
 .mosaic-container .menu .primary {
