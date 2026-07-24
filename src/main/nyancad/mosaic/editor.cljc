@@ -794,12 +794,12 @@
         (.translate (* grid-size ax) (* grid-size ay)))))
 
 (defn circuit-designator [v size width height]
-  (when-let [text (or (:template v)
-                      (when (seq (:model v))
-                        (cm/generate-important-template
-                          (:props (get @modeldb (cm/model-key (:model v))))))
-                      (get-in models [(:type v) ::template])
-                      "{self.name}")]
+  (let [text (or (:template v)
+                 (when (seq (:model v))
+                   (cm/generate-important-template
+                     (:props (get @modeldb (cm/model-key (:model v))))))
+                 (get-in models [(:type v) ::template])
+                 "{self.name}")]
     [:text.identifier
      {:transform (.toString (designator-transform (:transform v cm/IV) size width height))}
      (schem-template v text)]))
@@ -2905,7 +2905,7 @@
                                          (get wire-types id))))
                                ids)
            all-types (into (or types #{}) wire-type-set)
-           n (count (remove #(= (get-in sch [% :variant]) "text") ids))
+           n (count (remove #(= (get-in sch [% :type]) "port") ids))
            mismatch? (> (count all-types) 1)
            fork? (and (contains? all-types "photonic") (> n 2))]
        (cond-> errors
