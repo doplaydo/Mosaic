@@ -719,7 +719,7 @@
 (def sun-icon (r/adapt-react-class icons/SunFill))
 (def moon-icon (r/adapt-react-class icons/MoonFill))
 (def upload (r/adapt-react-class icons/Upload))
-(def wand-icon (r/adapt-react-class icons/Magic))
+(def wand-icon (r/adapt-react-class icons/Robot))
 
 (defn layout-icon
   "Layout glyph: a device cell with a metal route (metal 1 in from top → via at
