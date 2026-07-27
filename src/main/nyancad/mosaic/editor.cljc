@@ -23,7 +23,7 @@
             [nyancad.mosaic.common :as cm
              :refer [grid-size debounce sconj
                      point transform transform-vec
-                     mosfet-shape bjt-conn]]))
+                     mosfet-shape bjt-conn b64encode]]))
 
 
 (defn make-names
@@ -2410,14 +2410,6 @@
   (let [blob (js/Blob. #js[(prn-str @schematic)]
                        #js{:type "application/edn"})]
     (.createObjectURL js/URL blob)))
-
-(defn b64encode [s]
-  (-> s
-      js/encodeURIComponent
-      (clojure.string/replace
-       #"%([0-9A-F]{2})"
-       #(js/String.fromCharCode (str "0x" (nth % 1))))
-      js/btoa))
 
 (defn snapshot []
   (swap! snapshots assoc (str group "$snapshots" sep (.toISOString (js/Date.)))

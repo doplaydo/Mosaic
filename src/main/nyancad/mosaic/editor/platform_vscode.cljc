@@ -47,8 +47,11 @@
 (defonce ^:private symbol-url-cache (r/atom {}))
 
 (defn resolve-symbol-url
-  "Resolve a symbol path to a blob URL. Returns a reactive cursor (deref for the URL).
-   Triggers async load on first call for each path; cursor yields nil until loaded."
+  "Resolve a symbol path to a data URL. Returns a reactive cursor (deref for the URL).
+   Triggers async load on first call for each path; cursor yields nil until loaded.
+   Uses data: URLs instead of blob: URLs so the URL resolves in isolated contexts
+   (SVG <image> secure-static mode), enabling nested gsch subcircuit symbols to
+   render recursively without document-scoping failures."
   [path]
   (when (seq path)
     (when-not (contains? @symbol-url-cache path)
@@ -56,8 +59,7 @@
         (let [content (<! (send-request! path))]
           (when content
             (let [type (if (str/ends-with? path ".svg") "image/svg+xml" "image/png")
-                  blob (js/Blob. #js[content] #js{:type type})
-                  url (js/URL.createObjectURL blob)]
+                  url (str "data:" type ";base64," (cm/b64encode content))]
               (swap! symbol-url-cache assoc path url))))))
     (r/cursor symbol-url-cache [path])))
 
@@ -97,6 +99,24 @@
         :data (clj->js data)
         :label label}))
 
+;; @tags gsch symbol sidecar
+(defn serialize-styles
+  "Serialize all reachable CSS rules from document.styleSheets into a string.
+   Cross-origin sheets throw on cssRules access and are skipped. Prepends a
+   :root color-scheme rule so light-dark() fallbacks resolve in the isolated
+   SVG image context where VS Code theme variables are absent."
+  []
+  (str ":root { color-scheme: light dark; }\n"
+       (->> (array-seq (.-styleSheets js/document))
+            (keep (fn [^js sheet]
+                    (try
+                      (clojure.string/join
+                        "\n"
+                        (map #(.-cssText ^js %)
+                             (array-seq (.. sheet -cssRules))))
+                      (catch :default _e nil))))
+            (clojure.string/join "\n"))))
+
 (defn init-extra!
   "Set up message handlers for VS Code webview."
   []
@@ -107,13 +127,23 @@
         (let [request-id (.. event -data -requestId)
               key (.. event -data -key)]
           (when (= key "preview")
-            (let [svg-el (js/document.querySelector ".mosaic-canvas")]
+            (let [svg-el (js/document.querySelector ".mosaic-canvas")
+                  clone (when svg-el (.cloneNode svg-el true))]
+              (when clone
+                (.removeAttribute clone "class")
+                (.setAttribute clone "class" "gsch-symbol")
+                (let [style-el (.createElementNS
+                                 js/document
+                                 "http://www.w3.org/2000/svg"
+                                 "style")]
+                  (set! (.-textContent style-el) (serialize-styles))
+                  (.insertBefore clone style-el (.-firstChild clone))))
               (.postMessage vscode
                 #js{:type "state-response"
                     :requestId request-id
-                    :value (when svg-el
+                    :value (when clone
                              (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                                  (.-outerHTML svg-el)))}))))
+                                  (.-outerHTML clone)))}))))
         "zoom-to-fit"
         (.dispatchEvent js/document (js/CustomEvent. "mosaic-zoom-to-fit"))
         nil))))

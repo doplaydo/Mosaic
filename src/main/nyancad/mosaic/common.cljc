@@ -934,6 +934,17 @@
     (let [blob (js/Blob. #js[bytes] #js{:type content-type})]
       (.createObjectURL js/URL blob))))
 
+;; @tags gsch symbol sidecar
+(defn b64encode
+  "Base64-encode a string, UTF-8-safe. Plain js/btoa throws on codepoints > 255."
+  [s]
+  (-> s
+      js/encodeURIComponent
+      (clojure.string/replace
+       #"%([0-9A-F]{2})"
+       #(js/String.fromCharCode (str "0x" (nth % 1))))
+      js/btoa))
+
 (defn generate-important-template
   "Build a template string from props marked :important. Returns nil if none."
   [props]
