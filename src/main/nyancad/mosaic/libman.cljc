@@ -253,9 +253,12 @@
    [cm/contextmenu]
    [cm/modal]])
 
-(def shortcuts {})
+;; @tags editor keyboard shortcuts
+(def shortcuts {#{:escape} #(do (cm/clear-context-menu) (cm/clear-modal))})
 
+;; @tags editor keyboard shortcuts
 (defn ^:dev/after-load render []
+  (set! js/document.onkeyup (partial cm/keyboard-shortcuts shortcuts))
   (rdc/render root [library-manager]))
 
 (defn ^:export init []
