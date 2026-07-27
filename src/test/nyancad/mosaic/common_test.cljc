@@ -569,6 +569,27 @@
     (is (= [0 1 1 0 0 0] (round6 (via-mat cm/rotate-ccw [-1 0 0 1 0 0]))))))
 
 ;; ---------------------------------------------------------------------------
+;; transform-direction — port doc transform → hierarchy attachment side
+;; ---------------------------------------------------------------------------
+;; Contract: `transform-direction` maps a port doc's :transform to the side of
+;; the parent box the port attaches to one level up, by transforming the local
+;; +x axis (1,0) and reading which screen axis dominates. identity (the
+;; emitter's placement) → :left (port on the device's right, sitting on the
+;; left edge of the parent); a horizontal flip [-1 0 0 1 0 0] (the detector's
+;; add-time placement) → :right (port mirrored to the device's left, sitting on
+;; the right edge of the parent). A nil :transform defaults to IV (identity).
+;; This is the mapping the detector fix relies on so its visual port-on-the-left
+;; agrees with the hierarchy side it reports.
+
+(deftest transform-direction-maps-port-to-parent-side
+  (testing "identity transform → :left"
+    (is (= :left (cm/transform-direction {:transform [1 0 0 1 0 0]}))))
+  (testing "horizontal flip (add-detector placement) → :right"
+    (is (= :right (cm/transform-direction {:transform [-1 0 0 1 0 0]}))))
+  (testing "nil transform defaults to IV (identity) → :left"
+    (is (= :left (cm/transform-direction {})))))
+
+;; ---------------------------------------------------------------------------
 ;; alert — returns nil so validator or-short-circuit is falsey on rejection
 ;; ---------------------------------------------------------------------------
 ;; Contract (spec "validator function"): cm/alert fires the modal as a side

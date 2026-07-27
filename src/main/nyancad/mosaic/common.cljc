@@ -322,14 +322,19 @@
     "amp" "U"
     "X"))
 
+;; @tags editor flip transform composition
 (defn transform-direction
   "Determine cardinal direction from transformation matrix.
-  Returns one of: :left, :right, :top, :bottom based on the final orientation."
+  Returns one of: :left, :right, :top, :bottom based on which screen axis the
+  local +x axis (1,0) lands on after the transform. The transformed tip is
+  (a·1 + c·0 + e, b·1 + d·0 + f) = (a+e, b+f), computed directly from the
+  six-element vector so the function is pure Clojure and runs under the Node
+  test shim without a DOMMatrix/DOMPoint. `:left`/`:right`/`:top`/`:bottom` are
+  the side of the parent box a subcircuit port attaches to one level up."
   [{tfm :transform}]
-  (let [matrix (transform (or tfm IV))
-        pt (.transformPoint matrix (point 1 0))
-        x (.-x pt)
-        y (.-y pt)
+  (let [[a b _ _ e f] (or tfm IV)
+        x (+ a e)
+        y (+ b f)
         abs-x (abs x)
         abs-y (abs y)]
     (if (> abs-x abs-y)

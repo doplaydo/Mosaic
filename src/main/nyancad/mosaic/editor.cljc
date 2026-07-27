@@ -337,17 +337,23 @@
                         [[1.92  1.5] [2.5  1.5  ]]]]]})
 
 ;; Photodetector: double-walled circle (one grid cell) with two photon arrows
-;; (↘), wire to the adjacent port p1 at (0,1). Circle centered at canvas centre
+;; (↙), wire to the adjacent port p1 at (2,1). Circle centered at canvas centre
 ;; (75,75)px = grid (1.5,1.5). Outer r=22px fits in a 50×50 cell. Drawn at
-;; ::size 3 with a tetris background — used for the `detector` port variant.
+;; ::size 3 with a tetris background — the canonical `detector` port-variant
+;; artwork, carrying its port on the RIGHT (matching `optical-source-elements`
+;; and the plain port default, so the drawn lead coincides with the port
+;; marker under the identity transform). `add-detector` stages a horizontal
+;; flip (flip-x) so the port renders on the left at runtime; flip ∘ mirror =
+;; identity keeps the on-canvas look unchanged while making transform-direction
+;; report :right (the parent-edge the detector sits on).
 ;; @tags circulax simulation
 (def optical-detector-elements
   {::size 3
-   ::elements [[:lines [[[0.5 1.5] [1.06 1.5]]]]
+   ::elements [[:lines [[[2.5 1.5] [1.94 1.5]]]]
                [:circle.outline {:cx 1.5 :cy 1.5 :r 0.44}]
                [:circle.outline {:cx 1.5 :cy 1.5 :r 0.28}]
-               [:path {:d "M73,67 L83,77 M80,77 L83,77 L83,73"}]
-               [:path {:d "M67,73 L77,83 M73,83 L77,83 L77,80"}]]})
+               [:path {:d "M77,67 L67,77 M70,77 L67,77 L67,73"}]
+               [:path {:d "M83,73 L73,83 M77,83 L73,83 L73,80"}]]})
 
 (defn mosfet-sym [k v]
   (let [shape [[[0.5 1.5]
@@ -1184,7 +1190,7 @@
              ;; @tags circulax simulation
              "port" {::bg   {"emitter" cm/twoport-bg, "detector" cm/twoport-bg, ::default []}
                      ::conn {"emitter"  [{:name "P" :x 2 :y 1 :type "photonic"}]
-                             "detector" [{:name "P" :x 0 :y 1 :type "photonic"}]
+                             "detector" [{:name "P" :x 2 :y 1 :type "photonic"}]
                              ::default  [{:name "P" :x 0 :y 0}]}
                      ::sym  {"emitter" optical-source-elements
                              "detector" optical-detector-elements
@@ -2841,15 +2847,20 @@
 ;; and supply), not components. Unlike ground/supply they take no fixed :name —
 ;; each is a distinct exposed port, so commit-staged auto-names them uniquely.
 ;; They render as full-size components (via the `port` model's per-variant
-;; `::sym`/`::bg`/`::conn` dispatch maps); no default transform is applied — the
-;; source symbol carries its port on the right and the detector on the left,
-;; exactly as on dev.
+;; `::sym`/`::bg`/`::conn` dispatch maps). Both variants' canonical artwork
+;; carries the port on the right; the emitter is staged with the identity
+;; transform, while the detector is staged with a horizontal flip (flip-x) so
+;; its port renders on the left at runtime and transform-direction reports
+;; :right — the parent-edge it sits on. This mirrors add-gnd/add-supply, which
+;; bake a rotation into the staged transform for the same hierarchy reason.
 ;; @tags circulax simulation
 (defn add-emitter [coord]
   (add-device "port" coord :variant "emitter"))
 
+;; @tags circulax simulation
 (defn add-detector [coord]
-  (add-device "port" coord :variant "detector"))
+  (add-device "port" coord :variant "detector"
+              :transform (cm/transform-vec (cm/flip-x cm/I))))
 
 (defn menu-items []
   [:<>

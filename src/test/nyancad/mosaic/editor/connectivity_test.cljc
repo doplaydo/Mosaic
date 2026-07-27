@@ -940,6 +940,62 @@
         (reset! pform/modeldb {})))))
 
 ;; ---------------------------------------------------------------------------
+;; Port-variant canonical orientation (emitter/detector)
+;; ---------------------------------------------------------------------------
+;; Contract: the `emitter` and `detector` `port` variants share the same
+;; canonical ::sym orientation — port `P` at grid (2,1), the right side — so
+;; the drawn lead coincides with the port marker under the identity transform
+;; (the same convention as the plain port default and each other). `add-emitter`
+;; stages the identity transform, so its port stays on the right. `add-detector`
+;; stages a horizontal flip (flip-x, [-1 0 0 1 0 0]); because the canonical
+;; artwork is the horizontal mirror of the displayed detector, flip ∘ mirror =
+;; identity and the port lands back on the left at runtime. The flip also makes
+;; transform-direction report :right (the parent-edge a port-on-the-left
+;; detector sits on), where the identity transform used to report :left for a
+;; port that visually sat on the left — the hierarchy mismatch this fixes.
+;;
+;; Coordinate model: the `port` model's ::bg resolves to cm/twoport-bg [1 1],
+;; so size = 2 + (max 1 1) = 3 and mid = 1. rotate-shape maps the canonical
+;; conn port (2,1) at device origin (0,0) to (2,1) under identity and to (0,1)
+;; under [-1 0 0 1 0 0] (x: 2-1=1, nx = -1·1 = -1, final 0 + -1 + 1 = 0).
+
+(deftest emitter-canonical-port-stays-on-right
+  (testing "emitter with identity transform keeps its port on the right"
+    (let [dev {:type "port" :variant "emitter"
+               :x 0 :y 0 :transform [1 0 0 1 0 0]}
+          ports (e/device-port-types dev)
+          locs (into {} (map (juxt :name (juxt :x :y))) ports)]
+      (is (= [2 1] (get locs "P"))
+          "emitter port P at (2,1) — right side, identity transform"))))
+
+(deftest detector-canonical-port-is-on-the-right
+  (testing "under the identity transform the canonical detector port sits at (2,1), on the right"
+    (let [dev {:type "port" :variant "detector"
+               :x 0 :y 0 :transform [1 0 0 1 0 0]}
+          ports (e/device-port-types dev)
+          locs (into {} (map (juxt :name (juxt :x :y))) ports)]
+      (is (= [2 1] (get locs "P"))
+          "canonical detector port at (2,1) — same orientation as emitter, before the add-time flip"))))
+
+(deftest detector-add-flip-puts-port-on-the-left
+  (testing "add-detector's flip-x transform mirrors the canonical port back to the left"
+    (let [dev {:type "port" :variant "detector"
+               :x 0 :y 0 :transform [-1 0 0 1 0 0]}
+          ports (e/device-port-types dev)
+          locs (into {} (map (juxt :name (juxt :x :y))) ports)]
+      (is (= [0 1] (get locs "P"))
+          "detector port P at (0,1) — left side, runtime visual unchanged")))
+  (testing "device-locations and device-port-types agree under the flip"
+    (let [dev {:type "port" :variant "detector"
+               :x 0 :y 0 :transform [-1 0 0 1 0 0]}
+          [loc-endpoints _] (e/device-locations dev)
+          port-types (e/device-port-types dev)
+          loc-cells (set loc-endpoints)
+          port-cells (set (map (juxt :x :y) port-types))]
+      (is (= loc-cells port-cells)
+          "location endpoints and port-type positions must match under the flip"))))
+
+;; ---------------------------------------------------------------------------
 ;; Port nets annotation — port docs carry {:nets {:P net}}
 ;; ---------------------------------------------------------------------------
 ;; Contract: build-netlist returns a :ports {port-doc-id net-name} map, and
