@@ -32,11 +32,16 @@ tasks:
     inputs:
       - 'shadow-cljs.edn'
       - 'package.json'
+      - 'package-lock.json'
       - 'src/**/*'
       - 'public/**/*'
       - 'vscode-ext/**/*'
+      - '/scripts/build/build-mosaic.mjs'
+      - '/scripts/build/common.mjs'
+    outputs:
+      - '/vscode/dist/out'
     options:
-      cache: false
+      cache: 'local'
 
   watch-vscode:
     command: 'node'
