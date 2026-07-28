@@ -92,7 +92,8 @@
 (defonce undotree (cm/newundotree))
 
 (declare build-wire-split-index build-point-index split-wire point-index net-type-index
-         build-wire-networks build-netlist build-net-annotations build-net-type-index)
+         build-wire-networks build-netlist build-net-annotations build-net-type-index
+         port-wire-start)
 
 ;; @tags reactive indices
 (defn post-action!
@@ -154,11 +155,13 @@
                     :class [(:type v) (:variant v) (resolve-field (get models (:type v)) ::category v) (when (contains? @selected k) :selected)]}]
         elements))
 
+;; @tags mosaic wire tool
 (defn port [x y port-type]
   [:circle.port {:cx (+ x (/ grid-size 2))
                  :cy (+ y (/ grid-size 2))
                  :r (/ grid-size 10)
-                 :class port-type}])
+                 :class port-type
+                 :on-pointer-down port-wire-start}])
 
 (defn draw-background [[width height] k v]
   [device (+ 2 (max width height)) k v
@@ -2093,6 +2096,54 @@
                     :variant "d"}
          ::dragging ::wire))
 
+;; @tags mosaic wire tool, editor keyboard shortcuts
+(defn momentary-tool!
+  "Enter a momentary tool, saving the tool to return to in the one-shot
+   ::prev-tool slot. Shared by the pen eraser, middle-click pan, hold-Space pan,
+   and the port-press wire gesture; each entry site owns its own guards, this
+   owns the slot write. `maybe-restore-tool!` is the matching exit."
+  [tool]
+  (swap! ui #(assoc % ::prev-tool (::tool %) ::tool tool)))
+
+;; @tags mosaic wire tool
+(defn port-wire-start
+  "Launch the wire tool momentarily from a port-dot press. Saves ::prev-tool and
+   sets ::tool ::wire; completion or Escape restores it (see
+   maybe-restore-tool!). Does not stop-propagate and does not arm the wire — the
+   pointer-down bubbles to the device/background dispatch, which calls add-wire
+   at the click cell (the port) exactly as a normal wire-tool click.
+
+   Fires only for a primary left-click while the cursor tool is active. Every
+   other tool owns the click on its own terms: ::device would lose the staged
+   device (add-wire overwrites ::staging), ::eraser and ::probe would never
+   reach their handlers in drag-start, ::pan would wire instead of pan, and
+   ::wire already arms at the port through the normal dispatch. The pen eraser
+   presses while the tool is still ::cursor, so it needs its own exclusion."
+  [e]
+  (when (and (.-isPrimary e)
+             (= (.-button e) 0)
+             (not (pen-eraser? e))
+             (= ::cursor (::tool @ui)))
+    (momentary-tool! ::wire)))
+
+;; @tags mosaic wire tool, editor keyboard shortcuts
+(defn maybe-restore-tool!
+  "Restore ::tool from the one-shot ::prev-tool slot and clear the slot. The
+   single restore path: the momentary release sites (on-pointer-up-bg for
+   pen-eraser and middle-click, the Space keyup map) and the wire tool's
+   staging/dragging clear sites (drag-end non-zero, add-wire on-port/same-tile,
+   cancel 0-arity) all go through it.
+
+   No-op when the slot is nil, which happens whenever a restore site fires
+   without a matching entry — a sticky-W wire, a keyup whose keydown never
+   reached us, a release after Escape already consumed the slot. ::tool is a
+   closed set in the ::ui spec, so writing nil there trips the ui validator
+   instead of harmlessly doing nothing."
+  []
+  (when-let [t (::prev-tool @ui)]
+    (swap! ui assoc ::tool t ::prev-tool nil)))
+
+;; @tags mosaic wire tool
 (defn add-wire [[x y] first?]
   (if first?
     (add-wire-segment [x y]) ; just add a new wire, else finish old wire
@@ -2103,11 +2154,13 @@
           pt (get @point-index [x y])
           on-port (or (seq (:ids pt)) (seq (:body-ids pt)))]
       (cond
-        (same-tile? dev) (swap! ui assoc ; the dragged wire stayed at the same tile, exit
-                                ::staging nil
-                                ::dragging nil)
+        (same-tile? dev) (do (swap! ui assoc ; the dragged wire stayed at the same tile, exit
+                                    ::staging nil
+                                    ::dragging nil)
+                             (maybe-restore-tool!))
         on-port (do (swap! ui assoc ::staging nil ::dragging nil)
-                    (commit-staged dev))
+                    (commit-staged dev)
+                    (maybe-restore-tool!))
         :else (do (swap! ui assoc ::dragging nil)
                   (go (<! (commit-staged dev))
                       (add-wire-segment [x y])))))))
@@ -2144,7 +2197,7 @@
   [sel sch]
   (into #{} (filter #(contains? sch %)) sel))
 
-;; @tags mosaic clipboard
+;; @tags mosaic clipboard, mosaic wire tool
 (defn cancel
   "Cancel current operation and optionally switch to a new tool.
    0-arity: default behavior (keep wire tool if drawing wire, else cursor)
@@ -2167,7 +2220,9 @@
                 ::paste-staging nil
                 ::delta {:x 0 :y 0 :rx 0 :ry 0}
                 ::selected (keep-existing (::selected uiv) @schematic)))
-       (swap! ui assoc ::selected #{}))))
+       (swap! ui assoc ::selected #{}))
+     ;; Escape ends a port-armed wire, so the momentary restore fires here.
+     (maybe-restore-tool!)))
   ([new-tool]
    (let [uiv @ui]
      (swap! ui assoc
@@ -2176,6 +2231,10 @@
             ::staging nil
             ::stretch nil
             ::paste-staging nil
+            ;; An explicit tool pick wins over the momentary restore: W during a
+            ;; port-armed wire makes it sticky, and neither a later release nor
+            ;; a completion may drag the user back out of the chosen tool.
+            ::prev-tool nil
             ::delta {:x 0 :y 0 :rx 0 :ry 0}
             ::selected (keep-existing (::selected uiv) @schematic)))))
 
@@ -2242,6 +2301,7 @@
 
 ;; Pointer event handlers for touch/stylus support
 
+;; @tags mosaic wire tool
 (defn on-pointer-down-bg [e]
   (cm/clear-context-menu)
   (let [id (.-pointerId e)
@@ -2257,12 +2317,12 @@
 
         ;; Pen eraser: momentary eraser
         (pen-eraser? e)
-        (swap! ui #(assoc % ::prev-tool (::tool %) ::tool ::eraser))
+        (momentary-tool! ::eraser)
 
         ;; Middle click: momentary pan
         (= (.-button e) 1)
         (do (reset! last-coord [(.-clientX e) (.-clientY e)])
-            (swap! ui #(assoc % ::prev-tool (::tool %) ::tool ::pan)))
+            (momentary-tool! ::pan))
 
         ;; Primary pointer: normal interaction
         (.-isPrimary e)
@@ -2285,11 +2345,12 @@
     (when (and (.-isPrimary e) (< (count old-cache) 2))
       (drag e))))
 
+;; @tags mosaic wire tool
 (defn on-pointer-up-bg [e]
   (swap! ui update ::pointer-cache dissoc (.-pointerId e))
   ;; Restore tool from momentary switch (pen eraser or middle-click pan)
   (when (or (pen-eraser? e) (= (.-button e) 1))
-    (swap! ui #(assoc % ::tool (::prev-tool %))))
+    (maybe-restore-tool!))
   ;; Primary pointer: normal drag end (only if not in gesture)
   (when (and (.-isPrimary e) (< (count (::pointer-cache @ui)) 2))
     (drag-end e)))
@@ -2299,6 +2360,7 @@
   [e]
   (swap! ui update ::pointer-cache dissoc (.-pointerId e)))
 
+;; @tags mosaic wire tool
 (defn on-pointer-down-element [k e]
   (.stopPropagation e)
   (cm/clear-context-menu)
@@ -2316,12 +2378,12 @@
 
       ;; Pen eraser: momentary eraser
       (pen-eraser? e)
-      (swap! ui #(assoc % ::prev-tool (::tool %) ::tool ::eraser))
+      (momentary-tool! ::eraser)
 
       ;; Middle click: momentary pan
       (= (.-button e) 1)
       (do (reset! last-coord [(.-clientX e) (.-clientY e)])
-          (swap! ui #(assoc % ::prev-tool (::tool %) ::tool ::pan)))
+          (momentary-tool! ::pan))
 
       (.-isPrimary e)
       (drag-start k e))))
@@ -2430,6 +2492,7 @@
         (<! (done? schematic))
         (post-action!)))))
 
+;; @tags mosaic wire tool
 (defn drag-end [e]
   (.stopPropagation e)
   (let [bg? (= (.-target e) (.-currentTarget e))
@@ -2443,7 +2506,8 @@
       (let [dev (update-keys @staging #{:rx :ry} math/round)]
         (when-not (same-tile? dev)
           (commit-staged dev)
-          (swap! ui assoc ::staging nil ::dragging nil)))
+          (swap! ui assoc ::staging nil ::dragging nil)
+          (maybe-restore-tool!)))
       (= (::tool @ui) ::eraser) (post-action!)
       (= (::tool @ui) ::wire) nil
       (::paste-staging @ui) (commit-paste (::paste-staging @ui) dx dy)
@@ -3048,6 +3112,7 @@
   []
   (into [:<>] (build-schematic-airwires @schematic)))
 
+;; @tags mosaic wire tool
 (defn schematic-dots []
   (let [icon-size (/ grid-size 2.5)
         icon-offset (- (/ grid-size 2) (/ icon-size 2))
@@ -3067,7 +3132,8 @@
                   pt]
           :cx (* grid-size (+ x 0.5))
           :cy (* grid-size (+ y 0.5))
-          :r (/ grid-size 10)}]))
+          :r (/ grid-size 10)
+          :on-pointer-down (when nc? port-wire-start)}]))
      (doall
       (for [{err-type :type [x y] :pos} @wire-errors]
         [:g.wire-error
@@ -3203,7 +3269,7 @@
                 #{:w} #(cancel ::wire)
                 #{:e} #(cancel ::eraser)
                 #{:escape} #(do (cm/clear-context-menu) (cancel) (cm/clear-modal))
-                #{(keyword " ")} (fn [] (swap! ui #(assoc % ::tool (::prev-tool %))))
+                #{(keyword " ")} maybe-restore-tool!
                 #{:r}        (fn [_] (transform-selected cm/rotate-cw))
                 #{:shift :r} (fn [_] (transform-selected cm/rotate-ccw))
                 #{:x}        (fn [_] (transform-selected cm/flip-x))
@@ -3216,7 +3282,7 @@
                 #{:home} zoom-to-fit})
 
 (def immediate-shortcuts
-  {#{(keyword " ")} (fn [] (swap! ui #(assoc % ::tool ::pan ::prev-tool (::tool %))))
+  {#{(keyword " ")} (fn [] (momentary-tool! ::pan))
    (hash-set cm/mod-bind :c) copy
    (hash-set cm/mod-bind :x) cut
    (hash-set cm/mod-bind :v) paste
