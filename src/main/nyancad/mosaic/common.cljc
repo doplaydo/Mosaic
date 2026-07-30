@@ -725,6 +725,7 @@
 (def moon-icon (r/adapt-react-class icons/MoonFill))
 (def upload (r/adapt-react-class icons/Upload))
 (def wand-icon (r/adapt-react-class icons/Robot))
+(def gear (r/adapt-react-class icons/Gear))
 
 (defn layout-icon
   "Layout glyph: a device cell with a metal route (metal 1 in from top → via at
@@ -1053,22 +1054,68 @@
 
 (defonce context-content (r/atom {:x 0 :y 0 :body nil}))
 
+(def overlay-margin
+  "Gap in px kept between a floating overlay and the viewport edge, and between
+   the selection toolbar and the geometry it anchors to."
+  8)
+
+;; @tags mosaic selection toolbar, property editing
+(defn- clamp-to-viewport
+  "Position of a `size`-px box placed at `pos`, slid to keep `overlay-margin`
+   clear of both ends of a `viewport`-px axis."
+  [pos size viewport]
+  (max overlay-margin (min pos (- viewport size overlay-margin))))
+
+;; @tags mosaic selection toolbar
+(defn union-rect
+  "Smallest rect containing every rect in `rects`, each `{:x :y :width :height}`.
+   Returns nil for an empty sequence."
+  [rects]
+  (when (seq rects)
+    (let [left (apply min (map :x rects))
+          top (apply min (map :y rects))
+          right (apply max (map #(+ (:x %) (:width %)) rects))
+          bottom (apply max (map #(+ (:y %) (:height %)) rects))]
+      {:x left :y top :width (- right left) :height (- bottom top)})))
+
+;; @tags mosaic selection toolbar
+(defn inset-rect
+  "Shrink `rect` by `d` on every side."
+  [{:keys [x y width height]} d]
+  {:x (+ x d) :y (+ y d)
+   :width (- width (* 2 d)) :height (- height (* 2 d))})
+
+;; @tags mosaic selection toolbar
+(defn user->screen
+  "Scale `:k` and offsets `:dx`/`:dy` mapping SVG user units to viewport px for
+   the viewBox `[vx vy vw vh]` drawn into the canvas box `{:left :top :width
+   :height}` under `xMidYMid meet` — the tighter axis sets the scale and the
+   slack is split evenly. Derived from state rather than read back off the DOM,
+   so it is current in the render that changed the viewBox."
+  [[vx vy vw vh] {:keys [left top width height]}]
+  (let [k (min (/ width vw) (/ height vh))]
+    {:k k
+     :dx (+ left (/ (- width (* vw k)) 2) (* (- vx) k))
+     :dy (+ top (/ (- height (* vh k)) 2) (* (- vy) k))}))
+
+;; @tags mosaic selection toolbar
+(defn rect->screen
+  "Map a rect from SVG user units to viewport px through a `user->screen`."
+  [{:keys [k dx dy]} {:keys [x y width height]}]
+  {:x (+ (* x k) dx) :y (+ (* y k) dy)
+   :width (* width k) :height (* height k)})
+
+;; @tags mosaic selection toolbar, property editing
 (defn- clamp-context-menu!
-  "Slide the popup back inside the viewport (8px margin) so it never runs off
-   the bottom/right edge. Mirrors Livewire's positionMenu. The popup's own
-   max-height keeps it shorter than the viewport, so clamping the position is
-   enough — no taller-than-screen case to handle here."
+  "Slide the popup back inside the viewport so it never runs off an edge. Its
+   own max-height keeps it shorter than the viewport, so clamping suffices."
   [el x y]
   (when el
-    (let [vw (.-innerWidth js/window)
-          vh (.-innerHeight js/window)
-          rect (.getBoundingClientRect el)
-          w (.-width rect)
-          h (.-height rect)
-          left (max 8 (min x (- vw w 8)))
-          top (max 8 (min y (- vh h 8)))]
-      (set! (.. el -style -left) (str left "px"))
-      (set! (.. el -style -top) (str top "px")))))
+    (let [^js rect (.getBoundingClientRect el)]
+      (set! (.. el -style -left)
+            (str (clamp-to-viewport x (.-width rect) (.-innerWidth js/window)) "px"))
+      (set! (.. el -style -top)
+            (str (clamp-to-viewport y (.-height rect) (.-innerHeight js/window)) "px")))))
 
 (defn contextmenu []
   (let [{:keys [:x :y :body]} @context-content]

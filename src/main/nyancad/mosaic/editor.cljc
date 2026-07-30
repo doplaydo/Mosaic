@@ -2671,7 +2671,7 @@
                                            (reset! cm/modal-content nil))
                             :disabled (nil? @selected)} "Select"]]]))))
 
-;; @tags property editing, terminology
+;; @tags property editing, terminology, mosaic selection toolbar
 (defn deviceprops [key]
   (let [props (r/cursor schematic [key :props])
         device-type (r/cursor schematic [key :type])
@@ -2684,17 +2684,10 @@
                                  (::template (get models @device-type))
                                  "{self.name}")]
         [:<>
-         [:div.device-header
-          [:h1 (or @name key)]
-          [:button.ask-agent
-           {:title "Ask Agent"
-            :on-click (fn [e]
-                        (.stopPropagation e)
-                        (let [device (get @schematic key)]
-                          (send-to-agent (assoc device :_id key)
-                                         (str (or @name key) " (" @device-type ")")))
-                        (cm/clear-context-menu))}
-           [cm/wand-icon]]]
+         ;; Ask Agent lives on the selection toolbar, not here: a right-click sets
+         ;; ::selected, so the toolbar is on screen whenever this popup is open,
+         ;; and a copy in both surfaces would render the same button twice.
+         [:h1 (or @name key)]
          [:div.properties
           (when (and (seq @model) (not (cm/has-code-models? model-def)))
             [:a {:href "#" :on-click #(do (.preventDefault %) (open-schematic @model))} "Edit"])
@@ -2804,6 +2797,27 @@
 
         :else
         [(+ (:x dev) 0.5) (+ (:y dev) 0.5)]))))
+
+;; @tags mosaic selection toolbar
+(defn device-tile-size
+  "Square tile edge of a device doc in grid cells, mirroring `doc-center`'s
+   branches. Plain/ground/supply/text ports render at size 1 via `port-sym`,
+   which `device-dims`' `[1 1]` fallthrough would misreport as 3."
+  [dev]
+  (let [model-entry (get models (:type dev))
+        bg (resolve-field model-entry ::bg dev)]
+    (cond
+      (and (vector? bg) (= (count bg) 2))
+      (let [[w h] bg] (+ 2 (max w h)))
+
+      (:model dev)
+      (+ 2 (apply max (device-dims dev)))
+
+      (nil? (::conn model-entry))
+      3
+
+      :else
+      1)))
 
 ;; @tags mosaic clipboard
 (defn clipboard-centroid
@@ -2927,6 +2941,7 @@
   (add-device "port" coord :variant "detector"
               :transform (cm/transform-vec (cm/flip-x cm/I))))
 
+;; @tags mosaic selection toolbar
 (defn menu-items []
   [:<>
    [:div.primary
@@ -2939,31 +2954,8 @@
        [[cm/move] ::pan "Pan [space]"]
        [[cm/probe] ::probe "Probe nodes in a connected simulator"]]
       nil nil cancel]]
-    [:div.toolbar-group
-     [:a {:title "Rotate selected clockwise [r]"
-          :on-click (fn [_] (transform-selected cm/rotate-cw))}
-      [cm/rotatecw]]
-     [:a {:title "Rotate selected counter-clockwise [shift+r]"
-          :on-click (fn [_] (transform-selected cm/rotate-ccw))}
-      [cm/rotateccw]]
-     [:a {:title "Flip Horizontally [x]"
-          :on-click (fn [_] (transform-selected cm/flip-x))}
-      [cm/mirror-vertical]]
-     [:a {:title "Flip Vertically [y]"
-          :on-click (fn [_] (transform-selected cm/flip-y))}
-      [cm/mirror-horizontal]]
-     [:a {:title "Delete selected [del]"
-          :on-click (fn [_] (delete-selected))}
-      [cm/delete]]
-     [:a {:title (str "Copy selected [" cm/mod-key "+c]")
-          :on-click (fn [_] (copy))}
-      [cm/copyi]]
-     [:a {:title (str "Cut selected [" cm/mod-key "+x]")
-          :on-click (fn [_] (cut))}
-      [cm/cuti]]
-     [:a {:title (str "Paste [" cm/mod-key "+v]")
-          :on-click (fn [_] (paste))}
-      [cm/pastei]]]
+    ;; Paste acts on the clipboard rather than the selection, so it stays here
+    ;; while the selection actions live on the floating selection toolbar.
     [:div.toolbar-group
      [:a {:title "zoom in [scroll wheel/pinch]"
           :on-click #(button-zoom -1)}
@@ -2979,7 +2971,10 @@
       [cm/undoi]]
      [:a {:title (str "redo [" cm/mod-key "+shift+z]")
           :on-click redo-schematic}
-      [cm/redoi]]]]
+      [cm/redoi]]
+     [:a {:title (str "Paste [" cm/mod-key "+v]")
+          :on-click (fn [_] (paste))}
+      [cm/pastei]]]]
    [:div.status
     [cm/renamable (r/cursor modeldb [(cm/model-key group) :name]) "Untitled"]
     (if @syncactive
@@ -3201,16 +3196,141 @@
     "dark"    {:class "dark-cursors"}
     {}))
 
+(defonce canvas-box
+  ;; The canvas's viewport rect. Only a resize moves it, so keeping it here
+  ;; keeps `getBoundingClientRect` out of the pan/zoom path: with this plus
+  ;; `::zoom`, the selection toolbar's placement is pure.
+  (r/atom nil))
+
+;; @tags mosaic selection toolbar
+(defn watch-canvas-box!
+  "Mirror the canvas's viewport rect into `canvas-box` and keep it current as
+   the element resizes. Passed by name as the canvas's `:ref` so React runs it
+   on mount and unmount only, never per render."
+  [^js el]
+  (when el
+    (let [read! (fn []
+                  (let [^js r (.getBoundingClientRect el)]
+                    (reset! canvas-box {:left (.-left r) :top (.-top r)
+                                        :width (.-width r) :height (.-height r)})))]
+      (read!)
+      (.observe (js/ResizeObserver. read!) el))))
+
+;; @tags mosaic selection toolbar
+(defn selected-devices
+  "The ids in `sel` that name devices in `sch` — `::selected` mixes devices,
+   wires and text labels through one path. Stale ids are dropped."
+  [sch sel]
+  (into #{}
+        (remove #(contains? #{nil "wire" "text"} (:type (get sch %))))
+        sel))
+
+;; @tags mosaic selection toolbar
+(defn selection-anchor-rect
+  "Rect in SVG user units enclosing the selected devices' tiles, nil when the
+   selection is empty. Tile-derived rather than measured, so rotate and flip
+   cannot move it."
+  [sch sel]
+  (cm/union-rect
+   (for [id sel
+         :let [dev (get sch id)
+               tile (* (device-tile-size dev) grid-size)]]
+     {:x (* (:x dev) grid-size)
+      :y (* (:y dev) grid-size)
+      :width tile
+      :height tile})))
+
+;; @tags mosaic selection toolbar
+(defn- ask-agent-about
+  "Send device `k` to the agent as context, clearing the properties popup so
+   it is not left stranded over the agent panel."
+  [k]
+  (let [device (get @schematic k)]
+    (send-to-agent (assoc device :_id k)
+                   (str (or (:name device) k) " (" (:type device) ")"))
+    (cm/clear-context-menu)))
+
+;; @tags mosaic selection toolbar, property editing
+(defn- open-device-props
+  "Open the properties popup for device `k` at the button's lower-left corner,
+   reusing the right-click overlay so there is one properties surface."
+  [k ^js e]
+  (let [^js r (.getBoundingClientRect (.-currentTarget e))]
+    (cm/set-context-menu (.-left r) (.-bottom r)
+                         [:div.device-props [deviceprops k]])))
+
+;; @tags mosaic selection toolbar
+(defn selection-toolbar
+  "Floating action bar anchored above the selected device tiles. Every action
+   calls the same function its keyboard shortcut calls. Renders the selection's
+   screen rect as `.selection-anchor` and lets CSS hang the bar off it, so
+   nothing measures the bar; see specs/mosaic_selection_toolbar.md."
+  []
+  (let [sch @schematic
+        sel (selected-devices sch @selected)
+        single (when (= 1 (count sel)) (first sel))
+        box @canvas-box
+        tile (selection-anchor-rect sch sel)
+        ;; Half a cell in, off the tile, is the tetris body the bar should
+        ;; clear. Done in user units so it scales with zoom on its own.
+        anchor (when (and tile box)
+                 (cm/rect->screen (cm/user->screen @zoom box)
+                                  (cm/inset-rect tile (/ grid-size 2))))]
+    (when (and anchor (not (::dragging @ui)))
+      [:div.selection-anchor
+       ;; Inline rather than in CSS: being out of flow is structural, not
+       ;; cosmetic. An unstyled anchor would take up layout and shove the
+       ;; canvas, so it must not depend on the stylesheet having loaded.
+       {:style {:position "fixed"
+                :left (str (:x anchor) "px")
+                :top (str (:y anchor) "px")
+                :width (str (:width anchor) "px")
+                :height (str (:height anchor) "px")}}
+       [:div.selection-toolbar.chrome.chrome-float
+        [:div.toolbar-group
+         [:a {:title "Rotate selected clockwise [r]"
+              :on-click #(transform-selected cm/rotate-cw)}
+          [cm/rotatecw]]
+         [:a {:title "Rotate selected counter-clockwise [shift+r]"
+              :on-click #(transform-selected cm/rotate-ccw)}
+          [cm/rotateccw]]
+         [:a {:title "Flip horizontally [x]"
+              :on-click #(transform-selected cm/flip-x)}
+          [cm/mirror-vertical]]
+         [:a {:title "Flip vertically [y]"
+              :on-click #(transform-selected cm/flip-y)}
+          [cm/mirror-horizontal]]]
+        [:div.toolbar-group
+         [:a {:title (str "Cut selected [" cm/mod-key "+x]")
+              :on-click #(cut)}
+          [cm/cuti]]
+         [:a {:title (str "Copy selected [" cm/mod-key "+c]")
+              :on-click #(copy)}
+          [cm/copyi]]
+         [:a {:title "Delete selected [del]"
+              :on-click #(delete-selected)}
+          [cm/delete]]]
+        (when single
+          [:div.toolbar-group
+           [:a {:title "Ask Agent"
+                :on-click #(ask-agent-about single)}
+            [cm/wand-icon]]
+           [:a {:title "Parameters"
+                :on-click #(open-device-props single %)}
+            [cm/gear]]])]])))
+
+;; @tags mosaic selection toolbar
 (defn schematic-ui []
   [:div.mosaic-container (theme-attrs)
-   [:div.menu.chrome
+   [:div.menu.chrome.chrome-float
     [menu-items]]
    [:div.content-wrapper
     [:div.content
-     [:div.devicetray.chrome
+     [:div.devicetray.chrome.chrome-float
       [device-tray]]
      [:svg.mosaic-canvas (merge (theme-attrs)
                           {:xmlns "http://www.w3.org/2000/svg"
+                           :ref watch-canvas-box!
                            :height "100%"
                            :width "100%"
                            :class [@tool] ; for export
@@ -3241,6 +3361,7 @@
        [schematic-dots]]
       [tool-elements]]]
     [notebook-panel notebook-state]]
+   [selection-toolbar]
    [cm/contextmenu]
    [cm/modal]])
 
