@@ -827,6 +827,7 @@
                 (and tags-match props-match name-match)))
             models)))
 
+;; @tags terminology
 (defn model-list
   "Render a list of models as radio buttons.
    selected-atom: atom holding selected model id
@@ -859,7 +860,7 @@
                 (get model :name model-id)]))
       on-dblclick
       on-contextmenu]
-     [:div.empty "No models found"])))
+      [:div.empty "No components found"])))
 
 (defn renamable
   ([cursor] (renamable cursor nil))

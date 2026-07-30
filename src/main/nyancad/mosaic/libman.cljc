@@ -58,11 +58,12 @@
                             [:li {:on-click #(edit-url model-id)} "edit"])
                           [:li {:on-click #(swap! db dissoc model-id)} "delete"]])))
 
+;; @tags terminology
 (defn database-selector []
   [:div.cellsel
    (if (seq @modeldb)
      [cm/tag-tree selcat (cm/build-tag-index @modeldb)]
-     [:div.empty "There aren't any models yet"])])
+     [:div.empty "There aren't any components yet"])])
 
 (defn model-list-selector
   "Show list of individual models for the selected tag filters."
@@ -93,6 +94,7 @@
                 {:name "important" :tooltip "Show on schematic" :type :checkbox}]}]
    cell])
 
+;; @tags terminology
 (defn model-properties
   "Edit properties for the selected model."
   [db]
@@ -156,8 +158,9 @@
               {:name "port-order" :tooltip "Port connection order" :type :csv}]}]
            mod])
        [parameters-editor mod]]
-      [:div.empty "Select a model to edit its properties."])))
+      [:div.empty "Select a component to edit its properties."])))
 
+;; @tags terminology
 (defn model-preview [db]
   (let [mod (r/cursor db [@selmodel])]
     [:div.preview
@@ -173,7 +176,7 @@
             [:div.empty
              "No preview available. Use the snapshot button in the schematic editor to create one."])]
          [:div.empty "N/A"])
-       [:div.empty "Select a model to preview."])]))
+        [:div.empty "Select a component to preview."])]))
 
 (defn plain-tags
   "Return only plain (non-property) tags from a tag vector."
@@ -187,6 +190,7 @@
     (= v (str (get doc (keyword k))))
     true))
 
+;; @tags terminology
 (defn cell-view []
   (letfn [(create-model! [model-id doc]
             (swap! modeldb assoc model-id doc)
@@ -222,7 +226,7 @@
        [:button {:on-click add-spice}
         [cm/add-model] "Add SPICE model"]]
       [:div.models-header
-       [:h2 "Models: "
+       [:h2 "Components: "
         (if (seq @selcat)
           (for [tag @selcat]
             [:span.tag-badge.active
@@ -230,13 +234,13 @@
               :class (when (cm/parse-prop-tag tag) "prop-tag")
               :on-click #(swap! selcat (fn [v] (vec (remove #{tag} v))))}
              tag " \u00d7"])
-          "All models")]
-       [cm/dbfield :input {:type "text" :placeholder "Filter models..." :class "filter-input"}
+           "All components")]
+        [cm/dbfield :input {:type "text" :placeholder "Filter components..." :class "filter-input"}
         filter-text identity reset!]]
       [model-list-selector modeldb]]
      [:div.proppane
       [model-preview modeldb]
-      [:h3 "Model Properties"]
+       [:h3 "Component Properties"]
       [model-properties modeldb]]]))
 
 (defn library-manager []

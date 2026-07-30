@@ -117,6 +117,7 @@
 
 ;; --- Remote models section ---
 
+;; @tags terminology
 (defn remote-models-section
   "Reagent component for the 'Available' remote models section."
   [selcat filter-text]
@@ -125,7 +126,7 @@
     [:h4.section-header "Available"]
     (when (seq @remotemodeldb)
       [:button.download-btn.all {:on-click #(replicate-filtered-models @selcat @filter-text)
-                                  :title "Download all matching models"}
+                                  :title "Download all matching components"}
        [cm/download] "Download All"])]
    (cond
      @remote-search-loading
@@ -139,11 +140,11 @@
                 [:label.remote-model {:key model-id}
                  [icon] " " (get model :name model-id)
                  [:button.download-btn {:on-click #(replicate-model model-id)
-                                        :title "Download this model"}
+                                        :title "Download this component"}
                   [cm/download]]]))]
 
      :else
-     [:div.empty "No remote models found"])])
+     [:div.empty "No remote components found"])])
 
 ;; --- Edit & Import ---
 

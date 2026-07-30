@@ -2634,6 +2634,7 @@
 (defn show-history-panel []
   (reset! cm/modal-content [history-panel]))
 
+;; @tags terminology
 (defn model-selector-popup
   "Popup for selecting a device model with tag tree and search"
   [_device-type _on-select]
@@ -2646,10 +2647,10 @@
             ;; Filter by tags and search text
             filtered (cm/filter-models type-models @model-popup-category @model-popup-filter)]
         [:div.model-selector-popup
-         [:h3 "Select Model"]
+         [:h3 "Select Component"]
          ;; Search input
          [:input.model-search {:type "text"
-                               :placeholder "Filter models..."
+                               :placeholder "Filter components..."
                                :value @model-popup-filter
                                :on-change #(reset! model-popup-filter (.. % -target -value))}]
          [:div.model-popup-content
@@ -2670,7 +2671,7 @@
                                            (reset! cm/modal-content nil))
                             :disabled (nil? @selected)} "Select"]]]))))
 
-;; @tags property editing
+;; @tags property editing, terminology
 (defn deviceprops [key]
   (let [props (r/cursor schematic [key :props])
         device-type (r/cursor schematic [key :type])
@@ -2708,8 +2709,8 @@
                     :type "text"
                     :read-only true
                     :value (or (:name model-def) (when (seq @model) @model) "Ideal")
-                    :title (or @model "No model selected")}]
-           [:button {:title "Select model"
+                    :title (or @model "No component selected")}]
+           [:button {:title "Select component"
                      :on-click #(do
                                   (reset! model-popup-filter "")
                                   (reset! model-popup-category [])

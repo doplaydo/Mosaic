@@ -29,7 +29,9 @@ dependencies = [
     "nyancad>=0.18.5",
     "httpx>=0.25.0",
     "slowapi>=0.1.9",
-    "mcp>=1.0.0",
+    # Cap below 2.0.0: that release split FastMCP out of the package, so
+    # `mcp.server.fastmcp` (imported by mcp_server.py) no longer exists.
+    "mcp>=1.0.0,<2.0.0",
     "pyjwt[crypto]>=2.10.1",
 ]
 
