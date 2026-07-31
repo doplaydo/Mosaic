@@ -65,6 +65,7 @@
      [cm/tag-tree selcat (cm/build-tag-index @modeldb)]
      [:div.empty "There aren't any components yet"])])
 
+;; @tags mosaic model picker, terminology
 (defn model-list-selector
   "Show list of individual models for the selected tag filters."
   [db]
@@ -79,8 +80,7 @@
            #(edit-url model-id)))
        (fn [model-id]
          #(model-context-menu % db model-id))
-       #(when-not (some #{%} @selcat)
-          (swap! selcat conj %))]]
+       #(cm/add-tag! selcat %)]]
 
      ;; Available models section (platform-specific: web shows remote DB, VS Code is no-op)
      [remote-models-section selcat filter-text]]))
@@ -190,7 +190,7 @@
     (= v (str (get doc (keyword k))))
     true))
 
-;; @tags terminology
+;; @tags terminology, mosaic model picker
 (defn cell-view []
   (letfn [(create-model! [model-id doc]
             (swap! modeldb assoc model-id doc)
@@ -228,13 +228,8 @@
       [:div.models-header
        [:h2 "Components: "
         (if (seq @selcat)
-          (for [tag @selcat]
-            [:span.tag-badge.active
-             {:key tag
-              :class (when (cm/parse-prop-tag tag) "prop-tag")
-              :on-click #(swap! selcat (fn [v] (vec (remove #{tag} v))))}
-             tag " \u00d7"])
-           "All components")]
+          [cm/selected-tag-badges selcat]
+          "All components")]
         [cm/dbfield :input {:type "text" :placeholder "Filter components..." :class "filter-input"}
         filter-text identity reset!]]
       [model-list-selector modeldb]]

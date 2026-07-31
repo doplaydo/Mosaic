@@ -39,6 +39,7 @@
 (defonce ui (r/atom {::zoom [0 0 500 500]
                       ::theme nil
                       ::tool ::cursor
+                      ::domain ::photonic
                       ::selected #{}
                       ::mouse [0 0]
                       ::mouse-start [0 0]
@@ -51,6 +52,10 @@
 (s/def ::zoom (s/coll-of number? :count 4))
 (s/def ::theme (s/nilable #{"light" "dark" "eyesore"}))
 (s/def ::tool #{::cursor ::eraser ::wire ::pan ::device ::probe})
+;; Device-tray domain mode: photonic or electronic. A visibility filter only —
+;; see specs/mosaic_device_tray.md. Optional in the spec so hot-reloaded ui
+;; atoms without the key stay valid; reads default to ::photonic.
+(s/def ::domain #{::photonic ::electronic})
 (s/def ::selected (s/and set? (s/coll-of string?)))
 (s/def ::dragging (s/nilable #{::wire ::device ::view ::box}))
 ;; Staging is a partial device: commit-staged assigns :name on commit.
@@ -71,13 +76,14 @@
 (s/def ::stretch (s/nilable (s/map-of string? set?)))
 (s/def ::paste-staging (s/nilable (s/map-of string? map?)))
 (s/def ::ui (s/keys :req [::zoom ::theme ::tool ::selected ::notebook-state ::pointer-cache ::tab-index]
-                    :opt [::dragging ::staging ::stretch ::paste-staging]))
+                    :opt [::dragging ::staging ::stretch ::paste-staging ::domain]))
 
 (set-validator! ui #(or (s/valid? ::ui %) (.log js/console (pr-str %) (s/explain-str ::ui %))))
 
 (defonce zoom (r/cursor ui [::zoom]))
 (defonce theme (r/cursor ui [::theme]))
 (defonce tool (r/cursor ui [::tool]))
+(defonce domain (r/cursor ui [::domain]))
 (defonce selected (r/cursor ui [::selected]))
 (defonce delta (r/cursor ui [::delta]))
 (defonce staging (r/cursor ui [::staging]))
@@ -141,7 +147,7 @@
   (when-let [st (cm/redo undotree)]
     (restore st)))
 
-(declare drag-start drag-end eraser-drag models resolve-field on-pointer-down-element on-pointer-move-element on-pointer-up-bg double-click device-template circuit-designator device-context-menu)
+(declare drag-start drag-end eraser-drag models resolve-field on-pointer-down-element on-pointer-move-element on-pointer-up-bg double-click device-dims device-template circuit-designator device-context-menu)
 
 (defn device [size k v & elements]
   (assert (js/isFinite size))
@@ -257,9 +263,9 @@
      [:text
       content]]))
 
+;; @tags photonic model ports
 (defn device-template [dev size]
-  (let [bg (resolve-field (get models (:type dev)) ::bg dev)
-        [bg-w bg-h] (if (vector? bg) bg [1 1])]
+  (let [[bg-w bg-h] (or (device-dims dev) [1 1])]
     (circuit-designator dev size bg-w bg-h)))
 
 ;; Plain port markers (regular exposed port, ground, supply, text). The ideal
@@ -716,13 +722,28 @@
                                  :transform (.toString tm)}
                name])))))
 
+;; The single source of truth for "how big is this device?". Everything that
+;; needs a footprint — rendering, placement, the clipboard centroid, the
+;; selection anchor — goes through `device-dims` or `device-tile-size` rather
+;; than re-deriving the `::bg`/`@modeldb` lookup, because the branches disagree
+;; in ways that are invisible for the 1x1 case every builtin happens to use.
+
 ;; @tags mosaic clipboard
 (defn device-dims
-  "Return [width height] of a device doc's render footprint — the tetris rect
-   dimensions, before the 2-tile padding added by the `device` renderer.
+  "Return [width height] of a device doc's tetris rect — the footprint before
+   the 2-tile padding added by the `device` renderer — or nil for devices that
+   render one bare tile and never reach `draw-background` (plain ports, text,
+   wires, groups: everything drawn by `port-sym` and friends).
+
    Electrical builtins read `::bg` from the static `models` map; subcircuit and
    photonic devices with a `:model` read ports from `@modeldb` via
-   `cm/port-perimeter`; everything else falls back to `[1 1]` (size 3)."
+   `cm/port-perimeter`. A type with no `::conn` entry is a tetris device whose
+   dims are unknown — photonic builtins, and subcircuits (`ckt`/`amp`) absent
+   from `models` entirely — and defaults to `[1 1]`, i.e. size 3.
+
+   The nil case is the reason this returns an option rather than always `[1 1]`:
+   a plain port is one tile, not a 1x1 rect padded to three, and callers that
+   guessed wrong put the selection toolbar and the paste centroid a tile off."
   [dev]
   (let [model-entry (get models (:type dev))
         bg (resolve-field model-entry ::bg dev)]
@@ -730,35 +751,43 @@
       (and (vector? bg) (= (count bg) 2)) bg
       (:model dev) (let [ports (get-in @modeldb [(cm/model-key (:model dev)) :ports])]
                      (if (seq ports) (cm/port-perimeter ports (:type dev)) [1 1]))
-      :else [1 1])))
+      (nil? (::conn model-entry)) [1 1]
+      :else nil)))
+
+;; @tags mosaic selection toolbar
+(defn device-tile-size
+  "Square tile edge of a device doc in grid cells — what `device` is given as
+   its `size`, so it is also the rotation pivot's box. A tetris device is its
+   larger dimension plus the 2-tile padding; a device with no tetris rect
+   (`device-dims` nil) is a single tile."
+  [dev]
+  (if-let [[w h] (device-dims dev)]
+    (+ 2 (max w h))
+    1))
 
 ;; @tags photonic model ports
 (defn- photonic-sym
   [builtin-elements k v]
-  (let [[width height] (device-dims v)
-        new-size (+ 2 (max width height))
+  (let [new-size (device-tile-size v)
         {orig-size ::size, elements ::elements} builtin-elements
         delta (- new-size orig-size)
         offset (* (/ delta 2) grid-size)]
     (into [device new-size k v
-           ;; Feed the real port-derived bbox; going through `device-template`
-           ;; would fall back to [1 1] (photonic builtins have no ::bg) and place
-           ;; the name against the wrong rectangle under rotation/flip.
-           (circuit-designator v new-size width height)]
+           [device-template v new-size]]
           (if (zero? delta)
             (map render-element elements)
             [(into [:g {:transform (str "translate(" offset "," offset ")")}]
                    (map render-element elements))]))))
 
+;; @tags photonic model ports
 (defn circuit-shape [k v]
-  (draw-background (device-dims v) k v))
+  (draw-background (or (device-dims v) [1 1]) k v))
 
+;; @tags photonic model ports
 (defn circuit-conn [k v]
-  (let [model (:model v)
-        ports (get-in @modeldb [(cm/model-key model) :ports])
-        [width height] (if ports (cm/port-perimeter ports (:type v)) [1 1])
-        locs (if ports (cm/port-locations ports (:type v)) [])
-        size (+ 2 (max width height))]
+  (let [ports (get-in @modeldb [(cm/model-key (:model v)) :ports])
+        locs (if (seq ports) (cm/port-locations ports (:type v)) [])
+        size (device-tile-size v)]
     [device size k v
      (into [:<>]
            (for [{:keys [x y type]} locs]
@@ -2033,15 +2062,27 @@
                                    (if (> (abs rx) (abs ry)) "hv" "vh"))]
                    (assoc d :rx rx :ry ry :variant variant))))))))
 
+;; @tags mosaic device tray, mosaic model picker
+(defn staging-origin
+  "The `[:x :y]` that puts device doc `dev`'s visual center on grid point
+   `[x y]`, unrounded. `draw-background` insets the tetris rect by one tile, so
+   a `[w h]` device's center sits at `[:x + 1 + w/2, :y + 1 + h/2]` — invert
+   that. Devices with no tetris rect (`device-dims` nil, e.g. text and plain
+   ports) render a single tile at the origin, centered at `[:x + .5, :y + .5]`.
+
+   Shared by `add-device` and `drag-staged-device` so the ghost cannot shift
+   between arming and the first pointer move; only `add-device` rounds."
+  [dev [x y]]
+  (if-let [[w h] (device-dims dev)]
+    [(- x (/ w 2) 1) (- y (/ h 2) 1)]
+    [(- x 0.5) (- y 0.5)]))
+
+;; @tags mosaic device tray, mosaic model picker
 (defn drag-staged-device [e]
-  (let [[x y] (cm/viewbox-coord e)
-        bg (resolve-field (get models (:type @staging)) ::bg @staging)
-        [width height] (when (vector? bg) bg)
-        ;; Unrounded: the placement ghost follows the cursor smoothly, like the
-        ;; drag ghost; commit-staged rounds so it snaps to the grid on drop.
-        xm (- x (or width 0) 0.5)
-        ym (- y (or height 0) 0.5)]
-    (swap! staging assoc :x xm :y ym)))
+  ;; Unrounded: the placement ghost follows the cursor smoothly, like the drag
+  ;; ghost; commit-staged rounds so it snaps to the grid on drop.
+  (let [[x y] (staging-origin @staging (cm/viewbox-coord e))]
+    (swap! staging assoc :x x :y y)))
 
 (defn wire-drag [e]
   (case (::dragging @ui)
@@ -2423,10 +2464,11 @@
       (fn? m) ^{:key k} [m k v]
       (map? m) ^{:key k} [render-symbol-data m k v]
       (= layer ::bg) ^{:key k} [draw-background m k v]
-      (= layer ::conn) (let [bg (resolve-field model-entry ::bg model)
-                             [w h] (when (vector? bg) bg)
-                             size (if (and (number? w) (number? h))
-                                    (+ 2 (max w h))
+      ;; A static conn pattern on a tetris device (a transistor, an emitter
+      ;; port) sizes to the rect; one with no rect (a plain port) sizes to the
+      ;; pattern's own extent.
+      (= layer ::conn) (let [size (if (device-dims model)
+                                    (device-tile-size model)
                                     (cm/pattern-size m))]
                           ^{:key k} [draw-pattern size m port k v])
       :else ^{:key k} [(fn [k _v] (println "invalid model for" k))])))
@@ -2513,12 +2555,12 @@
       (::paste-staging @ui) (commit-paste (::paste-staging @ui) dx dy)
       :else (end-ui bg? selected dx dy))))
 
+;; @tags mosaic device tray, mosaic model picker
 (defn add-device [cell [x y] & args]
   (let [kwargs (apply array-map args)
-        bg (resolve-field (get models cell) ::bg (assoc kwargs :type cell))
-        [width height] (when (vector? bg) bg)
-        mx (math/round (- x (/ (or width 0) 2) (if width 1 0)))
-        my (math/round (- y (/ (or height 0) 2) (if height 1 0)))]
+        [ox oy] (staging-origin (assoc kwargs :type cell) [x y])
+        mx (math/round ox)
+        my (math/round oy)]
     (swap! ui assoc
            ::staging (into {:transform cm/IV, :type cell :x mx :y my} kwargs)
            ::tool ::device)))
@@ -2634,42 +2676,145 @@
 (defn show-history-panel []
   (reset! cm/modal-content [history-panel]))
 
-;; @tags terminology
+;; @tags mosaic model picker
+(defn picker-type-match?
+  "True when a modeldb entry belongs in the picker for device-type. Entries
+   without a :type count as ckt (the nyanlib catch-all for cells without a
+   dedicated symbol type). amp is a ckt variant, so its picker lists amp and
+   ckt entries together."
+  [device-type entry-type]
+  (let [entry-type (or entry-type "ckt")]
+    (if (= device-type "amp")
+      (contains? #{"amp" "ckt"} entry-type)
+      (= device-type entry-type))))
+
+;; @tags mosaic model picker
+(defn picker-models
+  "The modeldb entries a picker for device-type lists, before tags and search."
+  [device-type]
+  (into {} (filter (fn [[_ m]] (picker-type-match? device-type (:type m))) @modeldb)))
+
+;; @tags mosaic model picker
+(defn matching-tags
+  "The tags that, on their own, still match at least one of models.
+
+   Applied when the picker opens, so a tag carried over from another device
+   type's picker cannot filter every row away. Deliberately per-tag: tags that
+   each match something are all kept, even when their intersection is empty.
+   That case is a filter the user built, and the chips make it visible and
+   removable — unlike a tag that cannot match this type at all, which they
+   never chose in this context."
+  [models tags]
+  (vec (filter #(seq (cm/filter-models models [%] "")) tags)))
+
+;; @tags mosaic model picker
+(defn- scroll-highlight-into-view!
+  "Scroll the highlighted picker row into view. Called on arrow keys and query
+   changes only — never on hover: scrolling rows out from under the pointer
+   fires pointerenter on a different row and moves the highlight again."
+  []
+  (when (exists? js/document)
+    (when-let [el (js/document.querySelector ".model-selector-popup .model-row.active")]
+      (.scrollIntoView el #js {:block "nearest"}))))
+
+;; @tags mosaic model picker
+(defn picker-key-down!
+  "Keyboard flow for the picker search input: arrows move the highlight
+   (wrapping at both ends), Enter confirms the highlighted row, Escape
+   cancels. Runs on keydown inside the input; global shortcuts ignore INPUT
+   targets, so this is the only Escape path while the input has focus."
+  [e filtered highlight confirm!]
+  (let [n (count filtered)]
+    (case (.-key e)
+      "ArrowDown" (do (.preventDefault e)
+                      (when (pos? n)
+                        (swap! highlight #(mod (inc %) n))
+                        (scroll-highlight-into-view!)))
+      "ArrowUp" (do (.preventDefault e)
+                    (when (pos? n)
+                      (swap! highlight #(mod (dec %) n))
+                      (scroll-highlight-into-view!)))
+      "Enter" (do (.preventDefault e)
+                  (when (pos? n)
+                    ;; Clamp: a tag-tree click can shrink the list after the
+                    ;; highlight moved, leaving it dangling past the end.
+                    (confirm! (first (nth filtered (min @highlight (dec n)))))))
+      "Escape" (do (.preventDefault e)
+                   (reset! cm/modal-content nil))
+      nil)))
+
+;; @tags mosaic model picker, terminology
 (defn model-selector-popup
-  "Popup for selecting a device model with tag tree and search"
+  "Modal model picker: tag tree, autofocused search, single-click rows.
+   Confirming a row calls (on-select model-id) and closes the modal; Escape
+   or Cancel aborts without calling on-select. One component, one behavior
+   across both call sites (tray picker-first placement and the deviceprops
+   model field) — see specs/mosaic_model_picker.md."
   [_device-type _on-select]
-  (let [selected (r/atom nil)]
+  (let [highlight (r/atom 0)]
     (fn [device-type on-select]
       (let [;; Filter models by device type first
-            type-models (into {} (filter (fn [[_ m]] (= (:type m "ckt") device-type)) @modeldb))
+            type-models (picker-models device-type)
             ;; Build tag tree from type-filtered models
             trie (cm/build-tag-index type-models)
             ;; Filter by tags and search text
-            filtered (cm/filter-models type-models @model-popup-category @model-popup-filter)]
+            filtered (vec (cm/filter-models type-models @model-popup-category @model-popup-filter))
+            confirm! (fn [model-id]
+                       (on-select model-id)
+                       (reset! cm/modal-content nil))]
         [:div.model-selector-popup
-         [:h3 "Select Component"]
+         ;; Selected tags sit in the heading, as in libman's "Components:" h2:
+         ;; compact, and the only affordance that reaches tags absent from the
+         ;; type-scoped tree and from every visible row
+         [:h3 (str "Select " device-type " component") " "
+          [cm/selected-tag-badges model-popup-category]]
          ;; Search input
          [:input.model-search {:type "text"
                                :placeholder "Filter components..."
+                               :auto-focus true
                                :value @model-popup-filter
-                               :on-change #(reset! model-popup-filter (.. % -target -value))}]
+                               :on-change #(do (reset! model-popup-filter (.. % -target -value))
+                                               (reset! highlight 0))
+                               :on-key-down #(picker-key-down! % filtered highlight confirm!)}]
          [:div.model-popup-content
           ;; Tag tree (left)
           [:div.model-categories
            (if (seq trie)
              [cm/tag-tree model-popup-category trie]
              [:div.empty "No categories"])]
-          ;; Model list (right)
+          ;; Model list (right): single click confirms
           [:div.model-list
-           [cm/model-list selected filtered nil nil
-            #(when-not (some #{%} @model-popup-category)
-               (swap! model-popup-category conj %))]]]
+           (if (seq filtered)
+             (doall
+              (map-indexed
+               (fn [i [model-id model]]
+                 ^{:key model-id}
+                 [:div.model-row {:class (when (= i @highlight) "active")
+                                  :on-click #(confirm! model-id)}
+                  [cm/model-row-content model model-id
+                   #(cm/add-tag! model-popup-category %)]])
+               filtered))
+             [:div.empty "No matching components"])]]
          ;; Buttons
          [:div.model-popup-buttons
-          [:button {:on-click #(reset! cm/modal-content nil)} "Cancel"]
-          [:button.primary {:on-click #(do (on-select @selected)
-                                           (reset! cm/modal-content nil))
-                            :disabled (nil? @selected)} "Select"]]]))))
+          [:button {:on-click #(reset! cm/modal-content nil)} "Cancel"]]]))))
+
+;; @tags mosaic model picker
+(defn open-model-picker!
+  "Open the model-selector modal for device-type. (on-select model-id) runs on
+   confirm; the modal closes itself. Escape/Cancel aborts without calling
+   on-select.
+
+   Clears the search text but deliberately keeps `model-popup-category`: tag
+   selection is a browsing context that survives across opens, device types
+   and both call sites, while the search string is a per-search transient.
+   Tags that cannot match this device type at all are dropped on the way in
+   (`matching-tags`); whatever survives stays visible as a removable chip.
+   See specs/mosaic_model_picker.md."
+  [device-type on-select]
+  (reset! model-popup-filter "")
+  (swap! model-popup-category #(matching-tags (picker-models device-type) %))
+  (reset! cm/modal-content [model-selector-popup device-type on-select]))
 
 ;; @tags property editing, terminology, mosaic selection toolbar
 (defn deviceprops [key]
@@ -2704,18 +2849,15 @@
                     :value (or (:name model-def) (when (seq @model) @model) "Ideal")
                     :title (or @model "No component selected")}]
            [:button {:title "Select component"
-                     :on-click #(do
-                                  (reset! model-popup-filter "")
-                                  (reset! model-popup-category [])
-                                  (reset! cm/modal-content
-                                          [model-selector-popup @device-type
-                                           (fn [model-id]
-                                             (reset! model (if model-id (cm/bare-id model-id) ""))
-                                             (let [mdef (when model-id (get @modeldb model-id))
-                                                   defaults (or (cm/model-prop-defaults mdef) {})]
-                                               (reset! props defaults))
-                                             (post-action!))]))}
-            [cm/search]]]
+                      :on-click #(open-model-picker!
+                                  @device-type
+                                  (fn [model-id]
+                                    (reset! model (if model-id (cm/bare-id model-id) ""))
+                                    (let [mdef (when model-id (get @modeldb model-id))
+                                          defaults (or (cm/model-prop-defaults mdef) {})]
+                                      (reset! props defaults))
+                                    (post-action!)))}
+             [cm/search]]]
           ; Get properties from built-in device and model
           (let [device-props (::props (get models @device-type) [])
                 model-props (mapv cm/schema->field-type (:props model-def []))
@@ -2769,55 +2911,18 @@
 
 ;; @tags mosaic clipboard
 (defn doc-center
-  "Visual center of a single device doc in grid coordinates — the tetris rect
-  center `[:x + 1 + w/2, :y + 1 + h/2]`, which is where `add-device` places a
-  device and what `draw-background` renders. Uses `device-dims` for the
-  `[w h]` lookup. Wires center on their segment midpoint. Ports/text (which
-  render at size 1 via `port-sym`, not through `draw-background`) center on
-  their origin tile."
+  "Visual center of a single device doc in grid coordinates — the inverse of
+  `staging-origin`, which is how `add-device` places a device and what
+  `draw-background` renders. Wires are the one shape with no tetris rect *and*
+  no single tile, so they center on their segment midpoint."
   [dev]
   (if (= (:type dev) "wire")
     [(+ (:x dev) (/ (:rx dev 0) 2) 0.5)
      (+ (:y dev) (/ (:ry dev 0) 2) 0.5)]
-    (let [model-entry (get models (:type dev))
-          bg (resolve-field model-entry ::bg dev)]
-      (cond
-        (and (vector? bg) (= (count bg) 2))
-        (let [[w h] bg]
-          [(+ (:x dev) 1 (/ w 2))
-           (+ (:y dev) 1 (/ h 2))])
-
-        (:model dev)
-        (let [[w h] (device-dims dev)]
-          [(+ (:x dev) 1 (/ w 2))
-           (+ (:y dev) 1 (/ h 2))])
-
-        (nil? (::conn model-entry))
-        [(+ (:x dev) 1.5) (+ (:y dev) 1.5)]
-
-        :else
-        [(+ (:x dev) 0.5) (+ (:y dev) 0.5)]))))
-
-;; @tags mosaic selection toolbar
-(defn device-tile-size
-  "Square tile edge of a device doc in grid cells, mirroring `doc-center`'s
-   branches. Plain/ground/supply/text ports render at size 1 via `port-sym`,
-   which `device-dims`' `[1 1]` fallthrough would misreport as 3."
-  [dev]
-  (let [model-entry (get models (:type dev))
-        bg (resolve-field model-entry ::bg dev)]
-    (cond
-      (and (vector? bg) (= (count bg) 2))
-      (let [[w h] bg] (+ 2 (max w h)))
-
-      (:model dev)
-      (+ 2 (apply max (device-dims dev)))
-
-      (nil? (::conn model-entry))
-      3
-
-      :else
-      1)))
+    (if-let [[w h] (device-dims dev)]
+      [(+ (:x dev) 1 (/ w 2))
+       (+ (:y dev) 1 (/ h 2))]
+      [(+ (:x dev) 0.5) (+ (:y dev) 0.5)])))
 
 ;; @tags mosaic clipboard
 (defn clipboard-centroid
@@ -2878,33 +2983,6 @@
               (= variant (:variant @staging)))
      "active")))
 
-(defn variant-tray [& _variants]
-  (let [active (r/atom 0)
-        timeout (r/atom nil)]
-    (fn [& variants]
-      (let [varwraps (map-indexed
-                      (fn [i var]
-                        [:span {:key i
-                                :on-pointer-up #(reset! active i)}
-                         var]) variants)]
-        [:details
-         {;:on-toggle js/console.log
-          :on-pointer-down
-          (fn [e]
-            (let [ct (.-currentTarget e)]
-              (reset! timeout (js/setTimeout
-                               #(set! (.-open ct) true)
-                               300))))
-          :on-pointer-up
-          (fn [e]
-            (js/clearTimeout @timeout)
-            (set! (.. e -currentTarget -open) false))}
-         [:summary {:on-click #(.preventDefault %)}
-          (nth variants @active)]
-         [:span.tray
-          (take @active varwraps)
-          (drop (inc @active) varwraps)]]))))
-
 (defn add-gnd [coord]
   (add-device "port" coord
               :variant "ground"
@@ -2940,6 +3018,199 @@
 (defn add-detector [coord]
   (add-device "port" coord :variant "detector"
               :transform (cm/transform-vec (cm/flip-x cm/I))))
+
+;; @tags mosaic device tray, mosaic model picker
+(defn ideal-placement?
+  "True when a tray type stages immediately as an ideal device rather than
+   opening the model picker — the exclusion set from
+   specs/mosaic_model_picker.md: passives, sources, all port variants, text."
+  [type _variant]
+  (contains? #{"port" "text"
+               "resistor" "capacitor" "inductor"
+               "vsource" "isource"}
+             type))
+
+;; @tags mosaic device tray
+(defn place-ideal!
+  "Stage an ideal (model-less) device from the tray, dispatching port variants
+   to their dedicated placement fns (baked transforms/names)."
+  [type variant coord]
+  (case variant
+    "ground" (add-gnd coord)
+    "supply" (add-supply coord)
+    "text" (add-label coord)
+    "emitter" (add-emitter coord)
+    "detector" (add-detector coord)
+    (add-device type coord)))
+
+;; @tags mosaic device tray, mosaic model picker
+(defn arm-device!
+  "Single entry point for tray activation. Ideal types stage immediately;
+   picker-first types open the model picker filtered to their type, and
+   confirming arms the staged device with the chosen model (bare id) at the
+   last known canvas mouse position — the ghost then follows the cursor."
+  [type variant coord]
+  (if (ideal-placement? type variant)
+    (place-ideal! type variant coord)
+    (open-model-picker! type
+                        (fn [model-id]
+                          (add-device type (::mouse @ui)
+                                      :model (cm/bare-id model-id))))))
+
+;; @tags mosaic device tray
+(def tray-groups
+  "Data-driven device tray inventory (specs/mosaic_device_tray.md). Each item
+   has an explicit :domain — ::photonic, ::electronic, or ::both for the
+   domain-neutral subcircuits — and one or more variants. Single-variant
+   items render as flat buttons, multi-variant items as split-button flyout
+   groups. Domain membership is explicit data, never derived from ::category
+   (grating-coupler carries \"source\", the same as vsource)."
+  [;; Photonic mode: all available photonic symbols, grouped logically.
+   ;; The first variant of each group is the most representative/common
+   ;; component — it is the group's default icon.
+   {:id :photonic-ports :domain ::photonic
+    :variants [{:title "Add port [p]" :type "port" :icon [cm/device-icon "port"]}
+               {:title "Add wire label [t]" :type "port" :variant "text" :icon [cm/namei]}
+               {:title "Add text area [shift+t]" :type "text" :icon [cm/text]}]}
+   {:id :waveguides :domain ::photonic
+    :variants [{:title "Add straight waveguide" :type "straight" :icon [cm/device-icon "straight"]}
+               {:title "Add bend" :type "bend" :icon [cm/device-icon "bend"]}
+               {:title "Add s-bend" :type "sbend" :icon [cm/device-icon "sbend"]}
+               {:title "Add taper" :type "taper" :icon [cm/device-icon "taper"]}
+               {:title "Add transition" :type "transition" :icon [cm/device-icon "transition"]}
+               {:title "Add terminator" :type "terminator" :icon [cm/device-icon "terminator"]}
+               {:title "Add crossing" :type "crossing" :icon [cm/device-icon "crossing"]}]}
+   {:id :couplers :domain ::photonic
+    :variants [{:title "Add directional coupler" :type "coupler" :icon [cm/device-icon "coupler"]}
+               {:title "Add 1x2 splitter" :type "splitter-1x2" :icon [cm/device-icon "splitter-1x2"]}
+               {:title "Add 1x2 MMI" :type "mmi-1x2" :icon [cm/device-icon "mmi-1x2"]}
+               {:title "Add 2x2 MMI" :type "mmi-2x2" :icon [cm/device-icon "mmi-2x2"]}
+               {:title "Add 1x2 MZI" :type "mzi-1x2" :icon [cm/device-icon "mzi-1x2"]}
+               {:title "Add 2x2 MZI" :type "mzi-2x2" :icon [cm/device-icon "mzi-2x2"]}]}
+   {:id :resonators :domain ::photonic
+    :variants [{:title "Add single-bus ring resonator" :type "ring-single" :icon [cm/device-icon "ring-single"]}
+               {:title "Add double-bus ring resonator" :type "ring-double" :icon [cm/device-icon "ring-double"]}
+               {:title "Add spiral" :type "spiral" :icon [cm/device-icon "spiral"]}]}
+   ;; Ideal optical source/detector ports (circulax) — not PDK components
+   {:id :optical-sources :domain ::photonic
+    :variants [{:title "Add optical source (ideal emitter port)" :type "port" :variant "emitter" :icon [cm/device-icon "emitter"]}
+               {:title "Add optical detector (ideal detector port)" :type "port" :variant "detector" :icon [cm/device-icon "detector"]}]}
+   ;; Interface components: fiber↔chip and electrical↔optical boundary devices
+   {:id :interface :domain ::photonic
+    :variants [{:title "Add grating coupler" :type "grating-coupler" :icon [cm/device-icon "grating-coupler"]}
+               {:title "Add LED" :type "led" :icon [cm/device-icon "led"]}
+               {:title "Add photodiode" :type "photodiode" :icon [cm/device-icon "photodiode"]}
+               {:title "Add modulator" :type "modulator" :icon [cm/device-icon "modulator"]}]}
+   ;; Electronic mode: the restored upstream toolbar
+   {:id :ports :domain ::electronic
+    :variants [{:title "Add port [p]" :type "port" :icon [cm/device-icon "port"]}
+               {:title "Add wire label [t]" :type "port" :variant "text" :icon [cm/namei]}
+               {:title "Add text area [shift+t]" :type "text" :icon [cm/text]}
+               {:title "Add ground [g]" :type "port" :variant "ground" :icon [cm/device-icon "ground"]}
+               {:title "Add power supply [shift+p]" :type "port" :variant "supply" :icon [cm/device-icon "supply"]}]}
+   {:id :resistor :domain ::electronic
+    :variants [{:title "Add resistor" :type "resistor" :icon [cm/device-icon "resistor"]}]}
+   {:id :inductor :domain ::electronic
+    :variants [{:title "Add inductor" :type "inductor" :icon [cm/device-icon "inductor"]}]}
+   {:id :capacitor :domain ::electronic
+    :variants [{:title "Add capacitor" :type "capacitor" :icon [cm/device-icon "capacitor"]}]}
+   {:id :diode :domain ::electronic
+    :variants [{:title "Add diode" :type "diode" :icon [cm/device-icon "diode"]}]}
+   {:id :sources :domain ::electronic
+    :variants [{:title "Add voltage source [v]" :type "vsource" :icon [cm/device-icon "vsource"]}
+               {:title "Add current source [i]" :type "isource" :icon [cm/device-icon "isource"]}]}
+   {:id :transistors :domain ::electronic
+    :variants [{:title "Add N-channel mosfet" :type "nmos" :icon [cm/device-icon "nmos"]}
+               {:title "Add P-channel mosfet" :type "pmos" :icon [cm/device-icon "pmos"]}
+               {:title "Add NPN BJT" :type "npn" :icon [cm/device-icon "npn"]}
+               {:title "Add PNP BJT" :type "pnp" :icon [cm/device-icon "pnp"]}]}
+   ;; Both modes: domain-neutral subcircuits (ckt = nyanlib entries without a
+   ;; dedicated symbol type; amp is a ckt variant)
+   {:id :subcircuits :domain ::both
+    :variants [{:title "Add subcircuit" :type "ckt" :icon [cm/chip]}
+               {:title "Add amplifier" :type "amp" :icon [cm/amp-icon]}]}])
+
+;; @tags mosaic device tray
+(def tray-domains
+  "The rocker's tabs, in order. Doubles as the set of domains the tray reserves
+   width for, so adding a domain is one row here and nowhere else."
+  [{:id ::photonic :icon "wave" :title "Photonic components"}
+   {:id ::electronic :icon "bolt" :title "Electronic components"}])
+
+;; @tags mosaic device tray
+(defn visible-tray-groups
+  "Tray items for a domain; ::both items (subcircuits) appear in every mode."
+  ([groups dom]
+   (filter #(contains? #{dom ::both} (:domain %)) groups))
+  ([]
+   (visible-tray-groups tray-groups (or @domain ::photonic))))
+
+;; @tags mosaic device tray
+(defn tray-slot-deficit
+  "How many slots this domain is short of the widest domain. Rendered as filler
+   outside the bar so every domain's bar keeps the same right edge — see
+   specs/mosaic_device_tray.md."
+  ([groups dom]
+   (- (apply max (for [{:keys [id]} tray-domains]
+                   (count (visible-tray-groups groups id))))
+      (count (visible-tray-groups groups dom))))
+  ([]
+   (tray-slot-deficit tray-groups (or @domain ::photonic))))
+
+;; @tags mosaic device tray
+(defn domain-switch
+  "Photonic/electronic rocker at the right end of the device tray, rendered from
+   `tray-domains` through the shared `cm/radiobuttons` — the same select-one-of-N
+   helper the tool selector uses. The domain is a visibility filter only — see
+   specs/mosaic_device_tray.md."
+  []
+  [:div.domain-switch
+   [cm/radiobuttons domain
+    ;; label, value, tooltip
+    (for [{:keys [id icon title]} tray-domains]
+      [[cm/device-icon icon] id title])]])
+
+;; @tags mosaic device tray
+(defn tray-button
+  "Render one tray variant as a button that arms it on pointer-up."
+  [{:keys [title type variant icon]}]
+  [:button {:title title
+            :class (device-active type variant)
+            :on-pointer-up #(arm-device! type variant (cm/viewbox-coord %))}
+   icon])
+
+;; @tags mosaic device tray
+(defn split-tray
+  "Split-button flyout group: the active variant's icon button plus a slit that
+   toggles the flyout — see specs/mosaic_device_tray.md for the geometry. Icon
+   click activates the active variant; clicking a flyout variant activates it
+   AND makes it the group's new default. The flyout closes on selection, slit
+   re-click, or backdrop click. Replaces the old long-press variant-tray."
+  [& _variants]
+  (let [active (r/atom 0)
+        open? (r/atom false)]
+    (fn [& variants]
+      [:span.split-tray
+       (nth variants @active)
+       [:button.slit {:title "Show variants"
+                      :aria-label "Show variants"
+                      :aria-expanded @open?
+                      :class (when @open? "open")
+                      :on-click #(swap! open? not)}]
+       (when @open?
+         [:<>
+          [:span.tray-backdrop {:on-pointer-down #(reset! open? false)}]
+          [:span.tray
+           (doall
+            (keep-indexed
+             (fn [i var]
+               (when-not (= i @active)
+                 ^{:key i}
+                 [:span.tray-variant
+                  {:on-pointer-up #(do (reset! active i)
+                                       (reset! open? false))}
+                  var]))
+             variants))]])])))
 
 ;; @tags mosaic selection toolbar
 (defn menu-items []
@@ -2988,59 +3259,28 @@
      [cm/help]]
     ]])
 
-(defn device-tray []
-  [:<>
-   [:button {:title "Add port [p]"
-             :class (device-active "port" nil)
-             :on-pointer-up #(add-device "port" (cm/viewbox-coord %))}
-    [cm/device-icon "port"]]
-   [:button {:title "Add wire label [t]"
-             :class (device-active "port" "text")
-             :on-pointer-up #(add-label (cm/viewbox-coord %))}
-    [cm/namei]]
-   [:button {:title "Add text area [shift+t]"
-             :class (device-active "text")
-             :on-pointer-up #(add-device "text" (cm/viewbox-coord %))}
-    [cm/text]]
-   [:button {:title "Add ground [g]"
-             :class (device-active "port" "ground")
-             :on-pointer-up #(add-gnd (cm/viewbox-coord %))}
-    [cm/device-icon "ground"]]
-   [:button {:title "Add power supply [shift+p]"
-             :class (device-active "port" "supply")
-             :on-pointer-up #(add-supply (cm/viewbox-coord %))}
-    [cm/device-icon "supply"]]
-   [variant-tray
-    [:button {:title "Add voltage source [v]"
-              :class (device-active "vsource")
-              :on-pointer-up #(add-device "vsource" (cm/viewbox-coord %))}
-     [cm/device-icon "vsource"]]
-    [:button {:title "Add current source [i]"
-              :class (device-active "isource")
-              :on-pointer-up #(add-device "isource" (cm/viewbox-coord %))}
-     [cm/device-icon "isource"]]]
-   [variant-tray
-    [:button {:title "Add resistor"
-              :class (device-active "resistor")
-              :on-pointer-up #(add-device "resistor" (cm/viewbox-coord %))}
-     [cm/device-icon "resistor"]]
-    [:button {:title "Add inductor"
-              :class (device-active "inductor")
-              :on-pointer-up #(add-device "inductor" (cm/viewbox-coord %))}
-     [cm/device-icon "inductor"]]
-    [:button {:title "Add capacitor"
-              :class (device-active "capacitor")
-              :on-pointer-up #(add-device "capacitor" (cm/viewbox-coord %))}
-     [cm/device-icon "capacitor"]]]
-   [variant-tray
-    [:button {:title "Add optical source (ideal emitter port)"
-              :class (device-active "port" "emitter")
-              :on-pointer-up #(add-emitter (cm/viewbox-coord %))}
-     [cm/device-icon "emitter"]]
-    [:button {:title "Add optical detector (ideal detector port)"
-              :class (device-active "port" "detector")
-              :on-pointer-up #(add-detector (cm/viewbox-coord %))}
-     [cm/device-icon "detector"]]]])
+;; @tags mosaic device tray
+(defn device-tray
+  "Filler slots, then the bar: the visible domain's items left to right and the
+   domain rocker last, so DOM order is the visual order. The filler makes the
+   centered outer shell the same width in every domain, which pins the bar's
+   right edge — and with it the rocker — while the bar still hugs its content."
+  []
+  [:div.devicetray-anchor
+   (doall
+    (for [i (range (tray-slot-deficit))]
+      ^{:key i}
+      ;; a button, not a span, so its em-based box matches a real slot's
+      [:button.tray-filler]))
+   [:div.devicetray.chrome.chrome-float
+    (doall
+     (for [{:keys [id variants]} (visible-tray-groups)]
+       (if (= 1 (count variants))
+         ^{:key id}
+         [tray-button (first variants)]
+         ^{:key id}
+         (into [split-tray] (map tray-button) variants))))
+    [domain-switch]]])
 
 (defn schematic-elements [schem]
   [:<>
@@ -3319,15 +3559,14 @@
                 :on-click #(open-device-props single %)}
             [cm/gear]]])]])))
 
-;; @tags mosaic selection toolbar
+;; @tags mosaic selection toolbar, mosaic device tray
 (defn schematic-ui []
   [:div.mosaic-container (theme-attrs)
    [:div.menu.chrome.chrome-float
     [menu-items]]
    [:div.content-wrapper
     [:div.content
-     [:div.devicetray.chrome.chrome-float
-      [device-tray]]
+     [device-tray]
      [:svg.mosaic-canvas (merge (theme-attrs)
                           {:xmlns "http://www.w3.org/2000/svg"
                            :ref watch-canvas-box!

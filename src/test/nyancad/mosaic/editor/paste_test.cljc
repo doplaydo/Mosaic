@@ -68,8 +68,9 @@
 ;; doc-center — ports/text (no ::bg, no :model, has ::conn)
 ;; ---------------------------------------------------------------------------
 ;;
-;; Contract: port/text/group devices have no 2-element ::bg and no :model.
-;; The visual center is the origin tile center = [:x + 0.5, :y + 0.5].
+;; Contract: port/text/group devices have no 2-element ::bg and no :model, but
+;; do have a ::conn entry — device-dims returns nil for them, meaning "no
+;; tetris rect". The visual center is the origin tile = [:x + 0.5, :y + 0.5].
 
 (deftest doc-center-port-default-variant
   (testing "a default port (::bg []) at (3,4) centers on (3.5, 4.5)"
@@ -115,10 +116,13 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; Contract: returns [width height] of a device's tetris rect (before the
-;; 2-tile padding). Electrical builtins read ::bg from the static models map;
-;; devices with a :model read ports from @modeldb via port-perimeter;
-;; everything else falls back to [1 1]. In the test stub @modeldb is empty,
-;; so the :model branch exercises the fallback.
+;; 2-tile padding), or nil for devices that render one bare tile via port-sym
+;; and never reach draw-background. Electrical builtins read ::bg from the
+;; static models map; devices with a :model read ports from @modeldb via
+;; port-perimeter; types with no ::conn entry (photonic builtins, and
+;; subcircuits absent from the models map entirely) are tetris devices whose
+;; dims default to [1 1]. In the test stub @modeldb is empty, so the :model
+;; branch exercises the fallback.
 
 (deftest device-dims-electrical-builtin
   (testing "a resistor (twoport-bg [1 1]) returns [1 1]"
@@ -132,6 +136,10 @@
   (testing "a straight (photonic builtin, no model, no ::bg) falls back to [1 1]"
     (is (= [1 1] (e/device-dims {:type "straight"})))))
 
+(deftest device-dims-subcircuit-not-in-models-map
+  (testing "a ckt subcircuit (absent from models, so no ::conn) is a tetris device"
+    (is (= [1 1] (e/device-dims {:type "ckt"})))))
+
 (deftest device-dims-subcircuit-model-not-loaded
   (testing "a subcircuit with :model not in @modeldb falls back to [1 1]"
     (is (= [1 1] (e/device-dims {:type "mzi-1x2" :model "some-uuid"})))))
@@ -141,8 +149,16 @@
     (is (= [1 1] (e/device-dims {:type "port" :variant "emitter"})))))
 
 (deftest device-dims-port-default-variant
-  (testing "a default port (::bg []) falls back to [1 1]"
-    (is (= [1 1] (e/device-dims {:type "port"})))))
+  (testing "a plain port renders at size 1 via port-sym, so it has no tetris rect"
+    (is (nil? (e/device-dims {:type "port"})))))
+
+(deftest device-dims-text-has-no-tetris-rect
+  (testing "text renders via text-sym, not draw-background"
+    (is (nil? (e/device-dims {:type "text"})))))
+
+(deftest device-dims-wire-has-no-tetris-rect
+  (testing "a wire is drawn as a polyline, not a tetris rect"
+    (is (nil? (e/device-dims {:type "wire"})))))
 
 ;; ---------------------------------------------------------------------------
 ;; clipboard-centroid

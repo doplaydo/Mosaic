@@ -70,11 +70,10 @@
 ;; device-tile-size — a device's square tile in grid cells
 ;; ---------------------------------------------------------------------------
 ;;
-;; Contract (spec "mosaic selection toolbar"): mirrors doc-center's branches —
-;; ::bg [w h] → (+ 2 (max w h)); :model → (+ 2 (max (device-dims dev)));
-;; photonic builtin without a model → 3; anything else → 1. The else branch is
-;; what plain ports render at (port-sym, size 1), which device-dims' [1 1]
-;; fallthrough would misreport as 3.
+;; Contract (spec "mosaic selection toolbar"): derived from device-dims —
+;; a tetris device is (+ 2 (max w h)), a device with no tetris rect (nil dims)
+;; is a single tile. The nil case is what plain ports render at (port-sym,
+;; size 1); reporting them as 3 would hang the toolbar a tile off.
 
 (deftest device-tile-size-per-device-kind
   (testing "electrical builtins (::bg [1 1]) get the standard 3-tile"
