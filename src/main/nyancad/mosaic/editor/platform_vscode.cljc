@@ -65,12 +65,13 @@
 
 ;; --- Functions ---
 
+;; @tags model identity
 (defn open-schematic
   "Open a subcircuit's .gsch file in VS Code via the extension host."
   [model-id]
   (.postMessage vscode
     #js{:type "open-file"
-        :filename (str model-id ".gsch")}))
+        :filename model-id}))
 
 (defn notebook-panel
   "No notebook panel in VSCode."

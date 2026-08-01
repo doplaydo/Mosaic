@@ -57,19 +57,21 @@
 
 ;; --- Edit & Import ---
 
+;; @tags model identity
 (defn edit-url
   "Open the model's schematic in a VS Code editor tab."
   [model-id]
   (.postMessage vscode
     #js{:type "open-file"
-        :filename (str (cm/bare-id model-id) ".gsch")}))
+        :filename (cm/bare-id model-id)}))
 
+;; @tags model identity
 (defn import-ports
   "Import port definitions from the model's schematic file via extension host."
   [model-id mod]
   (go
     (let [bare-id (cm/bare-id model-id)
-          json-str (<! (send-request! (str bare-id ".gsch")))]
+          json-str (<! (send-request! bare-id))]
       (when json-str
         (let [parsed (js/JSON.parse json-str)
               schematic-docs (into {}
