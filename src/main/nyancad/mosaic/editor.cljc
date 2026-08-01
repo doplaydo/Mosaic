@@ -2680,13 +2680,12 @@
 (defn picker-type-match?
   "True when a modeldb entry belongs in the picker for device-type. Entries
    without a :type count as ckt (the nyanlib catch-all for cells without a
-   dedicated symbol type). amp is a ckt variant, so its picker lists amp and
-   ckt entries together."
+   dedicated symbol type). Every type filters to itself — amp lists amps, ckt
+   lists ckts — except the sentinel ::any, the all-components picker behind the
+   photonic tray's library button, which lists every entry whatever its type."
   [device-type entry-type]
-  (let [entry-type (or entry-type "ckt")]
-    (if (= device-type "amp")
-      (contains? #{"amp" "ckt"} entry-type)
-      (= device-type entry-type))))
+  (or (= ::any device-type)
+      (= device-type (or entry-type "ckt"))))
 
 ;; @tags mosaic model picker
 (defn picker-models
@@ -2766,7 +2765,10 @@
          ;; Selected tags sit in the heading, as in libman's "Components:" h2:
          ;; compact, and the only affordance that reaches tags absent from the
          ;; type-scoped tree and from every visible row
-         [:h3 (str "Select " device-type " component") " "
+         ;; ::any has no type name to print — it is every type at once
+         [:h3 (if (= ::any device-type)
+                "Select component"
+                (str "Select " device-type " component")) " "
           [cm/selected-tag-badges model-popup-category]]
          ;; Search input
          [:input.model-search {:type "text"
@@ -3044,30 +3046,57 @@
     (add-device type coord)))
 
 ;; @tags mosaic device tray, mosaic model picker
+(defn staged-type
+  "The device type to stage for a picked model: the entry's own :type when this
+   build knows it, else the tray button's type.
+
+   The library button's picker is unfiltered (::any), so a bend picked there has
+   to stage as a bend or it renders as a generic box instead of its symbol. For
+   a type-filtered picker the entry's type is the button's type anyway, so this
+   only ever bites on ::any. An untyped entry (the nyanlib catch-all) or a type
+   this build does not know falls back to the button's type."
+  [fallback model-id]
+  (let [t (:type (get @modeldb model-id))]
+    (if (contains? cm/device-types t) t fallback)))
+
+;; @tags mosaic device tray, mosaic model picker
 (defn arm-device!
-  "Single entry point for tray activation. Ideal types stage immediately;
-   picker-first types open the model picker filtered to their type, and
-   confirming arms the staged device with the chosen model (bare id) at the
-   last known canvas mouse position — the ghost then follows the cursor."
-  [type variant coord]
+  "Single entry point for tray activation, taking the tray variant map. Ideal
+   types stage immediately; picker-first types open the model picker — filtered
+   to :picker-type when the item overrides it, else to :type — and confirming
+   arms the staged device with the chosen model (bare id) at the last known
+   canvas mouse position, typed by the model itself (`staged-type`). The ghost
+   then follows the cursor."
+  [{:keys [type variant picker-type]} coord]
   (if (ideal-placement? type variant)
     (place-ideal! type variant coord)
-    (open-model-picker! type
+    (open-model-picker! (or picker-type type)
                         (fn [model-id]
-                          (add-device type (::mouse @ui)
+                          (add-device (staged-type type model-id) (::mouse @ui)
                                       :model (cm/bare-id model-id))))))
 
 ;; @tags mosaic device tray
 (def tray-groups
   "Data-driven device tray inventory (specs/mosaic_device_tray.md). Each item
-   has an explicit :domain — ::photonic, ::electronic, or ::both for the
-   domain-neutral subcircuits — and one or more variants. Single-variant
-   items render as flat buttons, multi-variant items as split-button flyout
-   groups. Domain membership is explicit data, never derived from ::category
-   (grating-coupler carries \"source\", the same as vsource)."
-  [;; Photonic mode: all available photonic symbols, grouped logically.
-   ;; The first variant of each group is the most representative/common
-   ;; component — it is the group's default icon.
+   has an explicit :domain — ::photonic or ::electronic — and one or more
+   variants. Single-variant items render as flat buttons, multi-variant items
+   as split-button flyout groups. Domain membership is explicit data, never
+   derived from ::category (grating-coupler carries \"source\", the same as
+   vsource). A variant may override the picker's type filter with
+   :picker-type; ::any lists the whole library."
+  [;; Photonic mode: the whole library, then all available photonic symbols
+   ;; grouped logically. The first variant of each group is the most
+   ;; representative/common component — it is the group's default icon.
+   ;;
+   ;; The library at large leads the tray: the typed groups below are shortcuts
+   ;; into the same nyanlib, and plenty of photonic cells have no dedicated
+   ;; symbol type at all, so browsing everything is the first thing a schematic
+   ;; does rather than the fallback at the end. It stages whatever type the
+   ;; picked entry carries (`staged-type`), so it is not a ckt placer — "ckt" is
+   ;; only the fallback for an entry the nyanlib left untyped.
+   {:id :components :domain ::photonic
+    :variants [{:title "Add component from the library"
+                :type "ckt" :picker-type ::any :icon [cm/chip]}]}
    {:id :photonic-ports :domain ::photonic
     :variants [{:title "Add port [p]" :type "port" :icon [cm/device-icon "port"]}
                {:title "Add wire label [t]" :type "port" :variant "text" :icon [cm/namei]}
@@ -3124,9 +3153,10 @@
                {:title "Add P-channel mosfet" :type "pmos" :icon [cm/device-icon "pmos"]}
                {:title "Add NPN BJT" :type "npn" :icon [cm/device-icon "npn"]}
                {:title "Add PNP BJT" :type "pnp" :icon [cm/device-icon "pnp"]}]}
-   ;; Both modes: domain-neutral subcircuits (ckt = nyanlib entries without a
-   ;; dedicated symbol type; amp is a ckt variant)
-   {:id :subcircuits :domain ::both
+   ;; Subcircuits: ckt = nyanlib entries without a dedicated symbol type, amp =
+   ;; entries typed amp (the triangle symbol). Each picker lists exactly its own
+   ;; type — an electronic schematic distinguishes a block from an amplifier.
+   {:id :subcircuits :domain ::electronic
     :variants [{:title "Add subcircuit" :type "ckt" :icon [cm/chip]}
                {:title "Add amplifier" :type "amp" :icon [cm/amp-icon]}]}])
 
@@ -3139,9 +3169,11 @@
 
 ;; @tags mosaic device tray
 (defn visible-tray-groups
-  "Tray items for a domain; ::both items (subcircuits) appear in every mode."
+  "Tray items for a domain. Every item belongs to exactly one domain: the
+   photonic library button and the electronic subcircuits flyout both reach
+   ckt entries, so no item needs to appear in both modes."
   ([groups dom]
-   (filter #(contains? #{dom ::both} (:domain %)) groups))
+   (filter #(= dom (:domain %)) groups))
   ([]
    (visible-tray-groups tray-groups (or @domain ::photonic))))
 
@@ -3172,11 +3204,12 @@
 
 ;; @tags mosaic device tray
 (defn tray-button
-  "Render one tray variant as a button that arms it on pointer-up."
-  [{:keys [title type variant icon]}]
+  "Render one tray variant as a button that arms it on pointer-up. The whole
+   variant map goes to `arm-device!`, which reads :picker-type off it."
+  [{:keys [title type variant icon] :as item}]
   [:button {:title title
             :class (device-active type variant)
-            :on-pointer-up #(arm-device! type variant (cm/viewbox-coord %))}
+            :on-pointer-up #(arm-device! item (cm/viewbox-coord %))}
    icon])
 
 ;; @tags mosaic device tray

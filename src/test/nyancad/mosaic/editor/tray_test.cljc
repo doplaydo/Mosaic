@@ -7,10 +7,12 @@
    picker (specs/mosaic_device_tray.md, specs/mosaic_model_picker.md).
 
    Covers `tray-groups` well-formedness (registered types, valid domains,
-   unique ids), `visible-tray-groups` per-domain inventories (subcircuits in
-   both modes), the `ideal-placement?` exclusion set, `picker-type-match?`
-   (ckt catch-all, amp as ckt variant), `arm-device!` (ideal stages directly,
-   picker-first opens the picker, confirm arms with the bare model id), and
+   unique ids), `visible-tray-groups` per-domain inventories (the photonic
+   library button, the electronic subcircuits flyout), the `ideal-placement?`
+   exclusion set, `picker-type-match?` (ckt catch-all, per-type filtering,
+   the ::any all-components picker), `staged-type` (a model picked from ::any
+   stages as its own type), `arm-device!` (ideal stages directly, picker-first
+   opens the picker, confirm arms with the bare model id), and
    `picker-key-down!` (arrow wrapping, Enter confirm, Escape cancel, empty
    result set).
 
@@ -40,18 +42,23 @@
     (is (apply distinct? ids) "group ids are unique")
     (doseq [{:keys [id domain variants]} e/tray-groups]
       (is (keyword? id))
-      (is (contains? #{::e/photonic ::e/electronic ::e/both} domain)
+      (is (contains? #{::e/photonic ::e/electronic} domain)
           (str id " has a valid domain"))
       (is (seq variants) (str id " has variants"))
-      (doseq [{:keys [title type icon]} variants]
+      (doseq [{:keys [title type icon picker-type]} variants]
         (is (and (string? title) (seq title)) (str type " has a title"))
         (is (contains? valid-types type) (str "unregistered type: " type))
+        (is (contains? #{nil ::e/any} picker-type)
+            (str type " overrides the picker filter only with ::any"))
         (is (vector? icon) (str type " has hiccup icon"))))))
 
 (deftest visible-tray-groups-test
-  (testing "photonic mode: generic ports, photonic groups, subcircuits"
-    (is (= [:photonic-ports :waveguides :couplers :resonators :optical-sources :interface :subcircuits]
-           (map :id (e/visible-tray-groups e/tray-groups ::e/photonic)))))
+  (testing "photonic mode: the library button, generic ports, photonic groups"
+    (is (= [:components :photonic-ports :waveguides :couplers :resonators :optical-sources :interface]
+           (map :id (e/visible-tray-groups e/tray-groups ::e/photonic))))
+    (testing "the library button leads the tray"
+      (is (= :components
+             (:id (first (e/visible-tray-groups e/tray-groups ::e/photonic)))))))
   (testing "electronic mode: the restored upstream toolbar plus subcircuits"
     (is (= [:ports :resistor :inductor :capacitor :diode :sources :transistors :subcircuits]
            (map :id (e/visible-tray-groups e/tray-groups ::e/electronic))))))
@@ -85,6 +92,7 @@
       (is (= ["ring-single" nil] (first-of :resonators)))
       (is (= ["port" "emitter"] (first-of :optical-sources)))
       (is (= ["grating-coupler" nil] (first-of :interface)))
+      (is (= ["ckt" nil] (first-of :components)))
       (is (= ["ckt" nil] (first-of :subcircuits)))
       (is (= ["port" nil] (first-of :ports)))
       (is (= ["vsource" nil] (first-of :sources)))
@@ -107,12 +115,21 @@
       ;; not ::category \"photonic\" but must still be reachable
       (doseq [t ["grating-coupler" "led" "photodiode" "modulator"]]
         (is (contains? tray-photonic t) (str t " is reachable in photonic mode")))))
-  (testing "the generic schematic tools are reachable in photonic mode too"
+  (testing "the generic schematic tools and the library button are reachable in
+            photonic mode too"
     (let [tray-photonic (into #{}
                               (comp (mapcat :variants) (map :type))
                               (e/visible-tray-groups e/tray-groups ::e/photonic))]
-      (doseq [t ["port" "text"]]
-        (is (contains? tray-photonic t) (str t " is reachable in photonic mode"))))))
+      (doseq [t ["port" "text" "ckt"]]
+        (is (contains? tray-photonic t) (str t " is reachable in photonic mode")))))
+  (testing "the photonic library button's picker is unfiltered, and it is the
+            only ::any in the tray"
+    (is (= [::e/any]
+           (into [] (comp (mapcat :variants) (keep :picker-type)) e/tray-groups)))
+    (is (= ::e/any
+           (->> (e/visible-tray-groups e/tray-groups ::e/photonic)
+                (filter #(= :components (:id %)))
+                first :variants first :picker-type)))))
 
 (deftest electronic-coverage-test
   (testing "the upstream electronic toolbar is restored"
@@ -144,11 +161,15 @@
     (is (true? (e/picker-type-match? "ckt" "ckt")))
     (is (true? (e/picker-type-match? "ckt" nil)))
     (is (false? (e/picker-type-match? "ckt" "bend"))))
-  (testing "amp is a ckt variant: amp and ckt entries together"
+  (testing "amp lists amps only: ckt and amp are separate buttons"
     (is (true? (e/picker-type-match? "amp" "amp")))
-    (is (true? (e/picker-type-match? "amp" "ckt")))
-    (is (true? (e/picker-type-match? "amp" nil)))
-    (is (false? (e/picker-type-match? "amp" "bend")))))
+    (is (false? (e/picker-type-match? "amp" "ckt")))
+    (is (false? (e/picker-type-match? "amp" nil))
+        "an untyped entry is a ckt, so it is not in amp's picker")
+    (is (false? (e/picker-type-match? "amp" "bend"))))
+  (testing "::any is the whole library, untyped entries included"
+    (doseq [t ["ckt" "amp" "bend" "nmos" nil]]
+      (is (true? (e/picker-type-match? ::e/any t)) (str "::any matches " t)))))
 
 (deftest picker-narrowing-test
   (let [modeldb {"models:pk.bend_euler" {:name "bend_euler" :type "bend" :tags ["waveguides" "bend"]}
@@ -159,11 +180,14 @@
         of-type (fn [t] (into {} (filter (fn [[_ m]] (e/picker-type-match? t (:type m))) modeldb)))]
     (is (= #{"models:pk.bend_euler" "models:pk.bend_circular"}
            (set (keys (of-type "bend")))))
-    (is (= #{"models:pk.cell_x" "models:pk.amp_y"}
+    (is (= #{"models:pk.amp_y"}
            (set (keys (of-type "amp"))))
-        "amp's picker includes ckt entries")
+        "amp's picker is amps only")
     (is (= #{"models:pk.cell_x"}
            (set (keys (of-type "ckt")))))
+    (is (= (set (keys modeldb))
+           (set (keys (of-type ::e/any))))
+        "the library button's picker lists every entry")
     (testing "search query narrows within the type filter"
       (is (= #{"models:pk.bend_euler"}
              (set (keys (cm/filter-models (of-type "bend") [] "euler"))))))
@@ -171,11 +195,25 @@
       (is (= #{"models:pk.bend_euler" "models:pk.bend_circular"}
              (set (keys (cm/filter-models (of-type "bend") ["waveguides"] ""))))))))
 
+(deftest staged-type-test
+  (reset! pform/modeldb
+          {"models:pk.bend_euler" {:name "bend_euler" :type "bend"}
+           "models:pk.cell_x" {:name "cell_x"}
+           "models:pk.weird" {:name "weird" :type "not-a-device-type"}})
+  (testing "a model picked from the unfiltered library stages as its own type"
+    (is (= "bend" (e/staged-type "ckt" "models:pk.bend_euler"))))
+  (testing "an untyped entry falls back to the button's type"
+    (is (= "ckt" (e/staged-type "ckt" "models:pk.cell_x"))))
+  (testing "so does a type this build does not know, and a missing entry"
+    (is (= "ckt" (e/staged-type "ckt" "models:pk.weird")))
+    (is (= "ckt" (e/staged-type "ckt" "models:pk.absent"))))
+  (reset! pform/modeldb {}))
+
 (deftest arm-device-test
   (ui-reset)
   (reset! cm/modal-content nil)
   (testing "ideal types stage immediately without opening the picker"
-    (e/arm-device! "resistor" nil [3 4])
+    (e/arm-device! {:type "resistor"} [3 4])
     (is (= "resistor" (:type @e/staging)))
     (is (nil? (:model @e/staging)))
     (is (nil? @cm/modal-content))
@@ -185,13 +223,13 @@
     ;; emitter: no baked transform, so it runs under the :test build where
     ;; cm/I is an inert nil stub. The transform-baking variants (ground,
     ;; supply, label, detector) are covered by manual testing — see PR.md.
-    (e/arm-device! "port" "emitter" [1 1])
+    (e/arm-device! {:type "port" :variant "emitter"} [1 1])
     (is (= "port" (:type @e/staging)))
     (is (= "emitter" (:variant @e/staging)))
     (is (nil? @cm/modal-content)))
   (testing "picker-first types open the picker instead of staging"
     (ui-reset)
-    (e/arm-device! "bend" nil [3 4])
+    (e/arm-device! {:type "bend"} [3 4])
     (is (nil? @e/staging))
     (is (some? @cm/modal-content)))
   (testing "confirming arms the staged device with the bare model id"
@@ -205,6 +243,25 @@
       (is (= [6 7] [(:x @e/staging) (:y @e/staging)])
           "armed device centers on the cursor via device-dims ([1 1] fallback)")
       (is (= ::e/device @e/tool))))
+  (testing "the library button opens an unfiltered picker and stages the picked
+            entry's own type, not its own ckt"
+    (ui-reset)
+    (reset! cm/modal-content nil)
+    (reset! pform/modeldb {"models:pk.bend_euler" {:name "bend_euler" :type "bend"}
+                           "models:pk.cell_x" {:name "cell_x" :type "ckt"}})
+    (e/arm-device! {:type "ckt" :picker-type ::e/any} [3 4])
+    (let [[_ device-type on-select] @cm/modal-content]
+      (is (= ::e/any device-type) "picker is opened for the whole library")
+      (on-select "models:pk.bend_euler")
+      (is (= "bend" (:type @e/staging)))
+      (is (= "pk.bend_euler" (:model @e/staging))))
+    (testing "and a ckt entry picked there still stages as a ckt"
+      (ui-reset)
+      (reset! cm/modal-content nil)
+      (e/arm-device! {:type "ckt" :picker-type ::e/any} [3 4])
+      ((nth @cm/modal-content 2) "models:pk.cell_x")
+      (is (= "ckt" (:type @e/staging))))
+    (reset! pform/modeldb {}))
   (reset! cm/modal-content nil))
 
 ;; ---------------------------------------------------------------------------
