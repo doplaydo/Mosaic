@@ -3375,7 +3375,12 @@
        [[cm/wire] ::wire "Wire [w]"]
        [[cm/eraser] ::eraser "Eraser [e]"]
        [[cm/move] ::pan "Pan [space]"]
-       [[cm/probe] ::probe "Probe nodes in a connected simulator"]]
+       ;; Probe posts the clicked element on the "probe" BroadcastChannel, which
+       ;; only the anywidget notebook bridge listens to. The VS Code webview has
+       ;; no listener and no simulator to connect to, so the button is dead there
+       ;; and is left out of that build.
+       #?@(:vscode []
+           :default [[[cm/probe] ::probe "Probe nodes in a connected simulator"]])]
       nil nil cancel]]
     ;; Paste acts on the clipboard rather than the selection, so it stays here
     ;; while the selection actions live on the floating selection toolbar.
