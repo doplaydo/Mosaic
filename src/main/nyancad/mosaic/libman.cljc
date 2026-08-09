@@ -65,7 +65,7 @@
      [cm/tag-tree selcat (cm/build-tag-index @modeldb)]
      [:div.empty "There aren't any components yet"])])
 
-;; @tags mosaic model picker, terminology
+;; @tags mosaic model picker, mosaic radio groups, terminology
 (defn model-list-selector
   "Show list of individual models for the selected tag filters."
   [db]
@@ -74,7 +74,7 @@
      ;; Installed models section
      [:div.installed-section
       [:h4.section-header "Installed"]
-      [cm/model-list selmodel filtered-models
+      [cm/model-list "mosaic-libman-models" selmodel filtered-models
        (fn [model-id]
          (when (not (cm/has-code-models? (get @db model-id)))
            #(edit-url model-id)))

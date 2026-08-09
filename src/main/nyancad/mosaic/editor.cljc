@@ -3308,7 +3308,7 @@
   ([]
    (tray-slot-deficit tray-groups (or @domain ::photonic))))
 
-;; @tags mosaic device tray
+;; @tags mosaic device tray, mosaic radio groups
 (defn domain-switch
   "Photonic/electronic rocker at the right end of the device tray, rendered from
    `tray-domains` through the shared `cm/radiobuttons` — the same select-one-of-N
@@ -3316,7 +3316,7 @@
    specs/mosaic_device_tray.md."
   []
   [:div.domain-switch
-   [cm/radiobuttons domain
+   [cm/radiobuttons "mosaic-tray-domain" domain
     ;; label, value, tooltip
     (for [{:keys [id icon title]} tray-domains]
       [[cm/device-icon icon] id title])]])
@@ -3364,12 +3364,12 @@
                   var]))
              variants))]])])))
 
-;; @tags mosaic selection toolbar
+;; @tags mosaic radio groups, mosaic selection toolbar
 (defn menu-items []
   [:<>
    [:div.primary
     [:div.toolbar-group.tools-group
-     [cm/radiobuttons tool
+     [cm/radiobuttons "mosaic-tools" tool
     ; label, key, title
       [[[cm/cursor] ::cursor "Cursor [esc]"]
        [[cm/wire] ::wire "Wire [w]"]
