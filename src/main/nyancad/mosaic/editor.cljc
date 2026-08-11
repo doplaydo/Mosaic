@@ -3436,7 +3436,12 @@
          ^{:key id}
          [tray-button (first variants)]
          ^{:key id}
-         (into [split-tray] (map tray-button) variants))))
+         (into [split-tray]
+               (map-indexed
+                (fn [i variant]
+                  ^{:key [id i]}
+                  [tray-button variant]))
+               variants))))
     [domain-switch]]])
 
 (defn schematic-elements [schem]
