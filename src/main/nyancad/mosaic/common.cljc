@@ -703,8 +703,7 @@
 (def download (r/adapt-react-class icons/Download))
 (def sync-active (r/adapt-react-class icons/ArrowRepeat))
 (def sync-done (r/adapt-react-class icons/Check))
-(def text (r/adapt-react-class icons/Paragraph))
-(def namei (r/adapt-react-class icons/Fonts))
+(def text-annotation-icon (r/adapt-react-class icons/TextLeft))
 (def edit (r/adapt-react-class icons/PencilSquare))
 (def help (r/adapt-react-class icons/QuestionCircle))
 (def external-link (r/adapt-react-class icons/BoxArrowUpRight))
@@ -1219,6 +1218,7 @@
                "npn" (rc/inline "icons/npn.svg")
                "pnp" (rc/inline "icons/pnp.svg")
                "port" (rc/inline "icons/port.svg")
+               "port-label" (rc/inline "icons/port-label.svg")
                "ground" (rc/inline "icons/ground.svg")
                "supply" (rc/inline "icons/supply.svg")
                "emitter" (rc/inline "icons/emitter.svg")
@@ -1249,6 +1249,7 @@
                "")]
     [:span.device-icon {:dangerouslySetInnerHTML (r/unsafe-html icon)}]))
 
+;; @tags editor keyboard shortcuts
 (defn shortcut-table [title rows]
   [:div.shortcut-category
    [:h3 title]
@@ -1261,6 +1262,7 @@
         [:td (when (seq key) [:kbd key])]
         [:td.desc desc]])]]])
 
+;; @tags editor keyboard shortcuts, mosaic device tray
 (defn onboarding-popup []
   [:div.onboarding
    [:button.close-btn
@@ -1294,13 +1296,13 @@
       [:kbd "I"]
       [:span.label "Isource"]]
      [:div.component-item
-      [namei]
-      [:kbd "T"]
-      [:span.label "Label"]]
-     [:div.component-item
-      [text]
+      [device-icon "port-label"]
       [:kbd "Shift+T"]
-      [:span.label "Text"]]]
+      [:span.label "Port label"]]
+     [:div.component-item
+      [text-annotation-icon]
+      [:kbd "T"]
+      [:span.label "Text annotation"]]]
     [:p.hint "More components available in the device tray."]]
 
    ;; Two column layout for tools

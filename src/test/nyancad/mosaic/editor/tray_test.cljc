@@ -3,22 +3,20 @@
 ; SPDX-License-Identifier: MPL-2.0
 
 (ns nyancad.mosaic.editor.tray-test
-  "Tests for the domain-switched device tray and the picker-first model
+  "Tests for the placement-category device tray and picker-first model
    picker (specs/mosaic_device_tray.md, specs/mosaic_model_picker.md).
 
    Covers `tray-groups` well-formedness (registered types, valid domains,
-   unique ids), `visible-tray-groups` per-domain inventories (the photonic
-   library button, the electronic subcircuits flyout), the `ideal-placement?`
-   exclusion set, `picker-type-match?` (ckt catch-all, per-type filtering,
-   the ::any all-components picker), `staged-type` (a model picked from ::any
-   stages as its own type), `arm-device!` (ideal stages directly, picker-first
-   opens the picker, confirm arms with the bare model id), and
+   unique ids), exact Optical/Electrical inventories and defaults, stable
+   filler counts, the `ideal-placement?` exclusion set, `picker-type-match?`,
+   `staged-type`, `arm-device!`, and
    `picker-key-down!` (arrow wrapping, Enter confirm, Escape cancel, empty
    result set).
 
-   The split-tray flyout interaction, domain rocker rendering, and picker
-   row markup are visual/DOM behavior covered by manual testing — see the
-   manual test plan in PR.md."
+   Split-tray child identity is covered through its generated Hiccup keys.
+   Flyout interaction, domain rocker rendering, and picker row markup remain
+   visual/DOM behavior covered by manual testing — see the manual test plan in
+   PR.md."
   (:require [cljs.test :refer [deftest is testing]]
             [reagent.core :as r]
             [nyancad.mosaic.test-dommatrix]
@@ -26,23 +24,25 @@
             [nyancad.mosaic.editor :as e]
             [nyancad.mosaic.editor.platform-test :as pform]))
 
+;; @tags mosaic device tray
 (defn- ui-reset []
   (swap! e/ui assoc
          ::e/staging nil
          ::e/tool ::e/cursor
          ::e/mouse [0 0]
-         ::e/domain ::e/photonic
+         ::e/domain ::e/optical
          ::e/selected #{}
          ::e/dragging nil
          ::e/paste-staging nil))
 
+;; @tags mosaic device tray
 (deftest tray-groups-well-formed-test
   (let [valid-types (into cm/device-types cm/schematic-only-types)
         ids (map :id e/tray-groups)]
     (is (apply distinct? ids) "group ids are unique")
     (doseq [{:keys [id domain variants]} e/tray-groups]
       (is (keyword? id))
-      (is (contains? #{::e/photonic ::e/electronic} domain)
+      (is (contains? #{::e/optical ::e/electrical} domain)
           (str id " has a valid domain"))
       (is (seq variants) (str id " has variants"))
       (doseq [{:keys [title type icon picker-type]} variants]
@@ -52,93 +52,108 @@
             (str type " overrides the picker filter only with ::any"))
         (is (vector? icon) (str type " has hiccup icon"))))))
 
+;; @tags mosaic device tray
 (deftest visible-tray-groups-test
-  (testing "photonic mode: the library button, generic ports, photonic groups"
-    (is (= [:components :photonic-ports :waveguides :couplers :resonators :optical-sources :interface]
-           (map :id (e/visible-tray-groups e/tray-groups ::e/photonic))))
-    (testing "the library button leads the tray"
-      (is (= :components
-             (:id (first (e/visible-tray-groups e/tray-groups ::e/photonic)))))))
-  (testing "electronic mode: the restored upstream toolbar plus subcircuits"
-    (is (= [:ports :resistor :inductor :capacitor :diode :sources :transistors :subcircuits]
-           (map :id (e/visible-tray-groups e/tray-groups ::e/electronic))))))
+  (is (= [::e/optical ::e/electrical]
+         (map :id e/tray-domains)))
+  (testing "Optical exposes Components, the Port flyout, Port label, and Text annotation"
+    (is (= [:components :ports :port-label :text-annotation]
+           (map :id (e/visible-tray-groups e/tray-groups ::e/optical))))
+    (is (= [1 3 1 1]
+           (map (comp count :variants)
+                (e/visible-tray-groups e/tray-groups ::e/optical)))))
+  (testing "Electrical exposes the device picker and three primitive groups"
+    (is (= [:electrical-components :terminals :sources :passives]
+           (map :id (e/visible-tray-groups e/tray-groups ::e/electrical))))
+    (is (= [1 3 2 3]
+           (map (comp count :variants)
+                (e/visible-tray-groups e/tray-groups ::e/electrical))))))
 
+;; @tags mosaic device tray
+(deftest tray-child-keys-follow-group-ids-test
+  (letfn [(split-keys [dom]
+            (swap! e/ui assoc ::e/domain dom)
+            (->> (nth (nth (e/device-tray) 2) 1)
+                 (filter #(and (vector? %) (= e/split-tray (first %))))
+                 (mapv #(-> % meta :key))))]
+    (is (= [:ports] (split-keys ::e/optical)))
+    (is (= [:terminals :sources :passives]
+           (split-keys ::e/electrical)))))
+
+;; @tags mosaic device tray
 (deftest tray-slot-deficit-test
-  (testing "items + filler is the same in every domain, so the bar's right edge
-            — and the rocker on it — never moves when the domain changes"
+  (testing "items + filler is four in every category, so the bar's right edge
+            and rocker never move when the category changes"
     (is (apply = (for [{:keys [id]} e/tray-domains]
                    (+ (count (e/visible-tray-groups e/tray-groups id))
                       (e/tray-slot-deficit e/tray-groups id))))))
-  (testing "the widest domain needs no filler, and no domain gets negative filler"
+  (testing "the widest category needs no filler, and none gets negative filler"
     (let [deficits (map #(e/tray-slot-deficit e/tray-groups (:id %)) e/tray-domains)]
       (is (= 0 (apply min deficits)))
       (is (every? nat-int? deficits))))
-  (testing "photonic is one group short of electronic today"
-    (is (= 1 (e/tray-slot-deficit e/tray-groups ::e/photonic)))
-    (is (= 0 (e/tray-slot-deficit e/tray-groups ::e/electronic)))))
+  (is (= 0 (e/tray-slot-deficit e/tray-groups ::e/optical)))
+  (is (= 0 (e/tray-slot-deficit e/tray-groups ::e/electrical))))
 
+;; @tags mosaic device tray
 (deftest representative-first-variant-test
-  (testing "the first variant of each group is the most representative/common
-            component — it is the group's default icon"
+  (testing "each grouped inventory starts with its agreed visible action"
     (let [first-of (fn [id] (->> e/tray-groups
                                  (filter #(= id (:id %)))
                                  first
                                  :variants
                                  first
                                  ((juxt :type :variant))))]
-      (is (= ["port" nil] (first-of :photonic-ports)))
-      (is (= ["straight" nil] (first-of :waveguides)))
-      (is (= ["coupler" nil] (first-of :couplers)))
-      (is (= ["ring-single" nil] (first-of :resonators)))
-      (is (= ["port" "emitter"] (first-of :optical-sources)))
-      (is (= ["grating-coupler" nil] (first-of :interface)))
-      (is (= ["ckt" nil] (first-of :components)))
-      (is (= ["ckt" nil] (first-of :subcircuits)))
       (is (= ["port" nil] (first-of :ports)))
+      (is (= ["port" "text"] (first-of :port-label)))
+      (is (= ["text" nil] (first-of :text-annotation)))
+      (is (= ["ckt" nil] (first-of :components)))
+      (is (= ["ckt" nil] (first-of :electrical-components)))
+      (is (= ["port" nil] (first-of :terminals)))
       (is (= ["vsource" nil] (first-of :sources)))
-      (is (= ["nmos" nil] (first-of :transistors))))))
+      (is (= ["resistor" nil] (first-of :passives))))))
 
-(deftest photonic-coverage-test
-  (testing "every photonic-category builtin in the models map is in the tray"
-    (let [photonic-types (into #{}
-                               (keep (fn [[t entry]]
-                                       (when (= "photonic" (e/resolve-field entry ::e/category {:type t}))
-                                         t)))
-                               e/models)
-          tray-photonic (into #{}
-                              (comp (mapcat :variants) (map :type))
-                              (e/visible-tray-groups e/tray-groups ::e/photonic))]
-      (is (seq photonic-types) "models map has photonic builtins")
-      (is (every? tray-photonic photonic-types)
-          (str "missing from tray: " (remove tray-photonic photonic-types)))
-      ;; source-category grating-coupler and the photonic-active devices are
-      ;; not ::category \"photonic\" but must still be reachable
-      (doseq [t ["grating-coupler" "led" "photodiode" "modulator"]]
-        (is (contains? tray-photonic t) (str t " is reachable in photonic mode")))))
-  (testing "the generic schematic tools and the library button are reachable in
-            photonic mode too"
-    (let [tray-photonic (into #{}
-                              (comp (mapcat :variants) (map :type))
-                              (e/visible-tray-groups e/tray-groups ::e/photonic))]
-      (doseq [t ["port" "text" "ckt"]]
-        (is (contains? tray-photonic t) (str t " is reachable in photonic mode")))))
-  (testing "the photonic library button's picker is unfiltered, and it is the
-            only ::any in the tray"
-    (is (= [::e/any]
+;; @tags mosaic device tray
+(deftest placement-category-coverage-test
+  (testing "Both Components actions use the unfiltered picker"
+    (is (= [::e/any ::e/any]
            (into [] (comp (mapcat :variants) (keep :picker-type)) e/tray-groups)))
     (is (= ::e/any
-           (->> (e/visible-tray-groups e/tray-groups ::e/photonic)
+           (->> (e/visible-tray-groups e/tray-groups ::e/optical)
                 (filter #(= :components (:id %)))
-                first :variants first :picker-type)))))
-
-(deftest electronic-coverage-test
-  (testing "the upstream electronic toolbar is restored"
-    (let [tray-electronic (into #{}
-                                (comp (mapcat :variants) (map :type))
-                                (e/visible-tray-groups e/tray-groups ::e/electronic))]
-      (doseq [t ["port" "text" "resistor" "inductor" "capacitor" "diode"
-                 "vsource" "isource" "nmos" "pmos" "npn" "pnp" "ckt" "amp"]]
-        (is (contains? tray-electronic t) (str t " is reachable in electronic mode"))))))
+                first :variants first :picker-type)))
+    (is (= ::e/any
+           (->> (e/visible-tray-groups e/tray-groups ::e/electrical)
+                (filter #(= :electrical-components (:id %)))
+                first :variants first :picker-type))))
+  (testing "Electrical primitive groups contain model-free elements and terminals"
+    (is (= #{["port" nil] ["port" "ground"] ["port" "supply"]
+             ["vsource" nil] ["isource" nil]
+             ["resistor" nil] ["inductor" nil] ["capacitor" nil]}
+           (into #{}
+                 (comp (remove #(= :electrical-components (:id %)))
+                       (mapcat :variants)
+                       (map (juxt :type :variant)))
+                 (e/visible-tray-groups e/tray-groups ::e/electrical)))))
+  (testing "Optical Port contains the ordinary port, Laser, and Detector"
+    (is (= [["port" nil] ["port" "emitter"] ["port" "detector"]]
+           (->> (e/visible-tray-groups e/tray-groups ::e/optical)
+                (filter #(= :ports (:id %)))
+                first :variants
+                (mapv (juxt :type :variant)))))
+    (is (= ["Add port [p]" "Add laser" "Add detector"]
+           (->> (e/visible-tray-groups e/tray-groups ::e/optical)
+                (filter #(= :ports (:id %)))
+                first :variants
+                (map :title)))))
+  (testing "Optical keeps Port label and Text annotation as separate actions"
+    (let [groups (into {} (map (juxt :id identity))
+                       (e/visible-tray-groups e/tray-groups ::e/optical))]
+      (is (re-find #"port label \[shift\+t\]"
+                   (-> groups :port-label :variants first :title)))
+      (is (re-find #"name and expose"
+                   (-> groups :port-label :variants first :title)))
+      (is (= "Add text annotation [t]"
+             (-> groups :text-annotation :variants first :title))))))
 
 (deftest ideal-placement-test
   (testing "exclusion set stages ideal directly (no picker)"

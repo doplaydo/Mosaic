@@ -41,7 +41,7 @@
 (defonce ui (r/atom {::zoom [0 0 500 500]
                       ::theme nil
                       ::tool ::cursor
-                      ::domain ::photonic
+                      ::domain ::optical
                       ::selected #{}
                       ::mouse [0 0]
                       ::mouse-start [0 0]
@@ -54,10 +54,11 @@
 (s/def ::zoom (s/coll-of number? :count 4))
 (s/def ::theme (s/nilable #{"light" "dark" "eyesore"}))
 (s/def ::tool #{::cursor ::eraser ::wire ::pan ::device ::probe})
-;; Device-tray domain mode: photonic or electronic. A visibility filter only —
+;; @tags mosaic device tray
+;; Device-tray placement category. A visibility filter only —
 ;; see specs/mosaic_device_tray.md. Optional in the spec so hot-reloaded ui
-;; atoms without the key stay valid; reads default to ::photonic.
-(s/def ::domain #{::photonic ::electronic})
+;; atoms without the key stay valid; reads default to ::optical.
+(s/def ::domain #{::optical ::electrical})
 (s/def ::selected (s/and set? (s/coll-of string?)))
 (s/def ::dragging (s/nilable #{::wire ::device ::view ::box}))
 ;; Staging is a partial device: commit-staged assigns :name on commit.
@@ -3197,104 +3198,68 @@
 ;; @tags mosaic device tray
 (def tray-groups
   "Data-driven device tray inventory (specs/mosaic_device_tray.md). Each item
-   has an explicit :domain — ::photonic or ::electronic — and one or more
+   has an explicit :domain — ::optical or ::electrical — and one or more
    variants. Single-variant items render as flat buttons, multi-variant items
-   as split-button flyout groups. Domain membership is explicit data, never
-   derived from ::category (grating-coupler carries \"source\", the same as
-   vsource). A variant may override the picker's type filter with
+   as split-button flyout groups. Placement-category membership is explicit
+   data, never derived from ::category or port nature. A variant may override
+   the picker's type filter with
    :picker-type; ::any lists the whole library."
-  [;; Photonic mode: the whole library, then all available photonic symbols
-   ;; grouped logically. The first variant of each group is the most
-   ;; representative/common component — it is the group's default icon.
-   ;;
-   ;; The library at large leads the tray: the typed groups below are shortcuts
-   ;; into the same nyanlib, and plenty of photonic cells have no dedicated
-   ;; symbol type at all, so browsing everything is the first thing a schematic
-   ;; does rather than the fallback at the end. It stages whatever type the
-   ;; picked entry carries (`staged-type`), so it is not a ckt placer — "ckt" is
-   ;; only the fallback for an entry the nyanlib left untyped.
-   {:id :components :domain ::photonic
+  [;; Both workflows lead with the whole component library. Optical ports then
+   ;; share one split-button flyout whose initial visible action is Port.
+   {:id :components :domain ::optical
     :variants [{:title "Add component from the library"
                 :type "ckt" :picker-type ::any :icon [cm/chip]}]}
-   {:id :photonic-ports :domain ::photonic
-    :variants [{:title "Add port [p]" :type "port" :icon [cm/device-icon "port"]}
-               {:title "Add wire label [t]" :type "port" :variant "text" :icon [cm/namei]}
-               {:title "Add text area [shift+t]" :type "text" :icon [cm/text]}]}
-   {:id :waveguides :domain ::photonic
-    :variants [{:title "Add straight waveguide" :type "straight" :icon [cm/device-icon "straight"]}
-               {:title "Add bend" :type "bend" :icon [cm/device-icon "bend"]}
-               {:title "Add s-bend" :type "sbend" :icon [cm/device-icon "sbend"]}
-               {:title "Add taper" :type "taper" :icon [cm/device-icon "taper"]}
-               {:title "Add transition" :type "transition" :icon [cm/device-icon "transition"]}
-               {:title "Add terminator" :type "terminator" :icon [cm/device-icon "terminator"]}
-               {:title "Add crossing" :type "crossing" :icon [cm/device-icon "crossing"]}]}
-   {:id :couplers :domain ::photonic
-    :variants [{:title "Add directional coupler" :type "coupler" :icon [cm/device-icon "coupler"]}
-               {:title "Add 1x2 splitter" :type "splitter-1x2" :icon [cm/device-icon "splitter-1x2"]}
-               {:title "Add 1x2 MMI" :type "mmi-1x2" :icon [cm/device-icon "mmi-1x2"]}
-               {:title "Add 2x2 MMI" :type "mmi-2x2" :icon [cm/device-icon "mmi-2x2"]}
-               {:title "Add 1x2 MZI" :type "mzi-1x2" :icon [cm/device-icon "mzi-1x2"]}
-               {:title "Add 2x2 MZI" :type "mzi-2x2" :icon [cm/device-icon "mzi-2x2"]}]}
-   {:id :resonators :domain ::photonic
-    :variants [{:title "Add single-bus ring resonator" :type "ring-single" :icon [cm/device-icon "ring-single"]}
-               {:title "Add double-bus ring resonator" :type "ring-double" :icon [cm/device-icon "ring-double"]}
-               {:title "Add spiral" :type "spiral" :icon [cm/device-icon "spiral"]}]}
-   ;; Ideal optical source/detector ports (circulax) — not PDK components
-   {:id :optical-sources :domain ::photonic
-    :variants [{:title "Add optical source (ideal emitter port)" :type "port" :variant "emitter" :icon [cm/device-icon "emitter"]}
-               {:title "Add optical detector (ideal detector port)" :type "port" :variant "detector" :icon [cm/device-icon "detector"]}]}
-   ;; Interface components: fiber↔chip and electrical↔optical boundary devices
-   {:id :interface :domain ::photonic
-    :variants [{:title "Add grating coupler" :type "grating-coupler" :icon [cm/device-icon "grating-coupler"]}
-               {:title "Add LED" :type "led" :icon [cm/device-icon "led"]}
-               {:title "Add photodiode" :type "photodiode" :icon [cm/device-icon "photodiode"]}
-               {:title "Add modulator" :type "modulator" :icon [cm/device-icon "modulator"]}]}
-   ;; Electronic mode: the restored upstream toolbar
-   {:id :ports :domain ::electronic
-    :variants [{:title "Add port [p]" :type "port" :icon [cm/device-icon "port"]}
-               {:title "Add wire label [t]" :type "port" :variant "text" :icon [cm/namei]}
-               {:title "Add text area [shift+t]" :type "text" :icon [cm/text]}
-               {:title "Add ground [g]" :type "port" :variant "ground" :icon [cm/device-icon "ground"]}
-               {:title "Add power supply [shift+p]" :type "port" :variant "supply" :icon [cm/device-icon "supply"]}]}
-   {:id :resistor :domain ::electronic
-    :variants [{:title "Add resistor" :type "resistor" :icon [cm/device-icon "resistor"]}]}
-   {:id :inductor :domain ::electronic
-    :variants [{:title "Add inductor" :type "inductor" :icon [cm/device-icon "inductor"]}]}
-   {:id :capacitor :domain ::electronic
-    :variants [{:title "Add capacitor" :type "capacitor" :icon [cm/device-icon "capacitor"]}]}
-   {:id :diode :domain ::electronic
-    :variants [{:title "Add diode" :type "diode" :icon [cm/device-icon "diode"]}]}
-   {:id :sources :domain ::electronic
+   {:id :ports :domain ::optical
+    :variants [{:title "Add port [p]" :type "port"
+                :icon [cm/device-icon "port"]}
+               {:title "Add laser" :type "port" :variant "emitter"
+                :icon [cm/device-icon "emitter"]}
+               {:title "Add detector" :type "port" :variant "detector"
+                :icon [cm/device-icon "detector"]}]}
+   {:id :port-label :domain ::optical
+    :variants [{:title "Add port label [shift+t] — name and expose the connected network"
+                :type "port" :variant "text"
+                :icon [cm/device-icon "port-label"]}]}
+   {:id :text-annotation :domain ::optical
+    :variants [{:title "Add text annotation [t]" :type "text"
+                :icon [cm/text-annotation-icon]}]}
+
+   ;; Electrical placement: the whole component library, then model-free
+   ;; elements and their structural terminals. The first variant of each
+   ;; multi-variant group is its initial visible action.
+   {:id :electrical-components :domain ::electrical
+    :variants [{:title "Add component from the library"
+                :type "ckt" :picker-type ::any :icon [cm/chip]}]}
+   {:id :terminals :domain ::electrical
+    :variants [{:title "Add port [p]" :type "port"
+                :icon [cm/device-icon "port"]}
+               {:title "Add ground [g]" :type "port" :variant "ground"
+                :icon [cm/device-icon "ground"]}
+               {:title "Add supply [shift+p]" :type "port" :variant "supply"
+                :icon [cm/device-icon "supply"]}]}
+   {:id :sources :domain ::electrical
     :variants [{:title "Add voltage source [v]" :type "vsource" :icon [cm/device-icon "vsource"]}
                {:title "Add current source [i]" :type "isource" :icon [cm/device-icon "isource"]}]}
-   {:id :transistors :domain ::electronic
-    :variants [{:title "Add N-channel mosfet" :type "nmos" :icon [cm/device-icon "nmos"]}
-               {:title "Add P-channel mosfet" :type "pmos" :icon [cm/device-icon "pmos"]}
-               {:title "Add NPN BJT" :type "npn" :icon [cm/device-icon "npn"]}
-               {:title "Add PNP BJT" :type "pnp" :icon [cm/device-icon "pnp"]}]}
-   ;; Subcircuits: ckt = nyanlib entries without a dedicated symbol type, amp =
-   ;; entries typed amp (the triangle symbol). Each picker lists exactly its own
-   ;; type — an electronic schematic distinguishes a block from an amplifier.
-   {:id :subcircuits :domain ::electronic
-    :variants [{:title "Add subcircuit" :type "ckt" :icon [cm/chip]}
-               {:title "Add amplifier" :type "amp" :icon [cm/amp-icon]}]}])
+   {:id :passives :domain ::electrical
+    :variants [{:title "Add resistor" :type "resistor" :icon [cm/device-icon "resistor"]}
+               {:title "Add inductor" :type "inductor" :icon [cm/device-icon "inductor"]}
+               {:title "Add capacitor" :type "capacitor" :icon [cm/device-icon "capacitor"]}]}])
 
 ;; @tags mosaic device tray
 (def tray-domains
-  "The rocker's tabs, in order. Doubles as the set of domains the tray reserves
-   width for, so adding a domain is one row here and nowhere else."
-  [{:id ::photonic :icon "wave" :title "Photonic components"}
-   {:id ::electronic :icon "bolt" :title "Electronic components"}])
+  "The rocker's placement categories, in order. Doubles as the set of domains
+   the tray reserves width for, so adding a category is one row here."
+  [{:id ::optical :icon "wave" :title "Optical"}
+   {:id ::electrical :icon "bolt" :title "Electrical"}])
 
 ;; @tags mosaic device tray
 (defn visible-tray-groups
-  "Tray items for a domain. Every item belongs to exactly one domain: the
-   photonic library button and the electronic subcircuits flyout both reach
-   ckt entries, so no item needs to appear in both modes."
+  "Tray items for one placement category. Every item belongs to exactly one
+   category; model-backed components remain reachable through Components."
   ([groups dom]
    (filter #(= dom (:domain %)) groups))
   ([]
-   (visible-tray-groups tray-groups (or @domain ::photonic))))
+   (visible-tray-groups tray-groups (or @domain ::optical))))
 
 ;; @tags mosaic device tray
 (defn tray-slot-deficit
@@ -3306,14 +3271,13 @@
                    (count (visible-tray-groups groups id))))
       (count (visible-tray-groups groups dom))))
   ([]
-   (tray-slot-deficit tray-groups (or @domain ::photonic))))
+   (tray-slot-deficit tray-groups (or @domain ::optical))))
 
 ;; @tags mosaic device tray, mosaic radio groups
 (defn domain-switch
-  "Photonic/electronic rocker at the right end of the device tray, rendered from
-   `tray-domains` through the shared `cm/radiobuttons` — the same select-one-of-N
-   helper the tool selector uses. The domain is a visibility filter only — see
-   specs/mosaic_device_tray.md."
+  "Placement-category rocker at the right end of the device tray, rendered
+   from `tray-domains` through the shared `cm/radiobuttons`. The category is a
+   visibility filter only — see specs/mosaic_device_tray.md."
   []
   [:div.domain-switch
    [cm/radiobuttons "mosaic-tray-domain" domain
@@ -3435,13 +3399,13 @@
        (if (= 1 (count variants))
          ^{:key id}
          [tray-button (first variants)]
-         ^{:key id}
-         (into [split-tray]
+         (into ^{:key id}
+               [split-tray]
                (map-indexed
                 (fn [i variant]
                   ^{:key [id i]}
-                  [tray-button variant]))
-               variants))))
+                  [tray-button variant])
+                variants)))))
     [domain-switch]]])
 
 (defn schematic-elements [schem]
