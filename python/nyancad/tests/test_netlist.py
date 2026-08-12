@@ -11,6 +11,7 @@ from nyancad.netlist import (
     NyanCADMixin,
     NyanCircuit,
     SchemId,
+    _coerce_props,
     _eval_params,
     _parse_spice_value,
     _select_corner,
@@ -897,6 +898,36 @@ class TestPopulateFromNyancad:
 # ---------------------------------------------------------------------------
 # kfnetlist_from_nyancad — direct Mosaic nets to kfnetlist wire format
 # ---------------------------------------------------------------------------
+
+
+def test_coerce_props_preserves_native_types_without_parsing_strings():
+    """Native JSON values and numeric-looking strings retain their types.
+
+    @tags sax simulation pipeline
+    """
+    assert _coerce_props(
+        {
+            "native_int": 2,
+            "native_float": 2.5,
+            "native_bool": True,
+            "native_list": [1, 2],
+            "integer_string": "2",
+            "float_string": "2.5",
+            "exponent_string": "1e3",
+            "text": "strip",
+            "empty": "",
+            "none": None,
+        }
+    ) == {
+        "native_int": 2,
+        "native_float": 2.5,
+        "native_bool": True,
+        "native_list": [1, 2],
+        "integer_string": "2",
+        "float_string": "2.5",
+        "exponent_string": "1e3",
+        "text": "strip",
+    }
 
 
 def _kf_data(netlist):

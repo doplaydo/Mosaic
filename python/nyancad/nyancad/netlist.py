@@ -411,15 +411,15 @@ def _kf_instance_id_map(docs):
 
 
 def _coerce_props(props: dict) -> dict:
-    """Convert string prop values to float where possible; drop empty strings."""
+    """Preserve native JSON prop types while omitting unset values.
+
+    @tags sax simulation pipeline
+    """
     result = {}
     for k, v in props.items():
         if v is None or v == "":
             continue
-        try:
-            result[k] = float(v)
-        except (TypeError, ValueError):
-            result[k] = v
+        result[k] = v
     return result
 
 
