@@ -913,6 +913,31 @@
       (finally
         (reset! pform/modeldb {})))))
 
+;; @tags photonic model ports
+(deftest artwork-transform-is-centered-on-symbol
+  (testing "a horizontal reflection uses the six-number matrix around the tile center"
+    (is (= "matrix(-1, 0, 0, 1, 150, 0)"
+           (e/centered-artwork-transform 3 [-1 0 0 1 0 0])))))
+
+;; @tags photonic model ports
+(deftest artwork-transform-does-not-change-model-port-locations
+  (testing "grating-coupler artwork can reflect while its declared ports stay authoritative"
+    (reset! pform/modeldb
+            {"models:test.gc"
+             {:name "GC"
+              :artwork-transform [-1 0 0 1 0 0]
+              :ports [{:name "opt_in" :side :right :type "photonic"}
+                      {:name "opt_out" :side :left :type "photonic"}]}})
+    (try
+      (let [dev {:type "grating-coupler" :model "test.gc"
+                 :x 0 :y 0 :transform [1 0 0 1 0 0] :name "GC1"}
+            locs (into {} (map (juxt :name (juxt :x :y)))
+                       (e/device-port-types dev))]
+        (is (= [2 1] (get locs "opt_in")))
+        (is (= [0 1] (get locs "opt_out"))))
+      (finally
+        (reset! pform/modeldb {})))))
+
 (deftest photonic-mmi-2x2-port-gap
   (testing "mmi-2x2 with model ports: gap preserved between port pairs"
     (reset! pform/modeldb

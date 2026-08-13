@@ -558,6 +558,15 @@
 (defn- via-mat [mat-fn v]
   (cm/transform-vec (mat-fn (js/DOMMatrixReadOnly. (clj->js v)))))
 
+;; @tags editor flip transform composition, photonic model ports
+(deftest wire-transform-produces-a-composable-dommatrix
+  (testing "a wire-format matrix can be multiplied with another DOMMatrix"
+    (let [centered (-> (js/DOMMatrixReadOnly.)
+                       (.translate 75 75)
+                       (.multiply (cm/transform [-1 0 0 1 0 0]))
+                       (.translate -75 -75))]
+      (is (= [-1 0 0 1 150 0] (cm/transform-vec centered))))))
+
 (deftest flip-x-mirrors-about-vertical-axis
   (testing "identity flips to diag(-1, 1)"
     (is (= [-1 0 0 1 0 0] (via-mat cm/flip-x [1 0 0 1 0 0]))))

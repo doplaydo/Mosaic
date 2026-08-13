@@ -230,9 +230,11 @@
         val (get v idx)]
     (and (vector? val) (= xy (kf val)))))
 
-(defn transform [[a b c d e f]]
-  (.fromMatrix js/DOMMatrixReadOnly
-               #js {:a a, :b b, :c c, :d d, :e e, :f f}))
+;; @tags editor flip transform composition, photonic model ports
+(defn transform
+  "Convert a six-number wire transform into a composable DOMMatrix."
+  [matrix]
+  (js/DOMMatrixReadOnly. (clj->js matrix)))
 (defn transform-vec [obj]
   [(.-a obj) (.-b obj) (.-c obj) (.-d obj) (.-e obj) (.-f obj)])
 (defn point [x y] (.fromPoint js/DOMPointReadOnly (clj->js {:x x :y y})))
@@ -451,8 +453,10 @@
            props))
 
 (s/def ::symbol (s/nilable string?))
+(s/def ::artwork-transform ::transform)
 (s/def ::model-def (s/keys :req-un [::name]
-                           :opt-un [::type ::tags ::ports ::models ::props ::symbol]))
+                           :opt-un [::type ::tags ::ports ::models ::props ::symbol
+                                    ::artwork-transform]))
 (s/def ::modeldb (s/map-of string? ::model-def))
 
 ;; @tags factory card dragging
