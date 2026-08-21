@@ -615,19 +615,17 @@
                         (uri-join doc-uri "models.nyanlib"))]
       (js/Promise.
         (fn [resolve _reject]
-          ;; Assign the inert document and resolve the provider immediately.
-          ;; VS Code does not present a custom editor while this promise is
-          ;; pending, so readiness work must continue in the background.
+          ;; Resolve after the initial cache read. Cold-start polling must
+          ;; continue in the background because VS Code does not present a
+          ;; custom editor while this promise is pending.
           (set! (.-iconPath webviewpanel)
                 #js{:light (uri-join (.-extensionUri context) "assets" "img" "icon" "schematic-red.svg")
                     :dark  (uri-join (.-extensionUri context) "assets" "img" "icon" "schematic-red.svg")})
           (set! (.-options webview)
                 #js{:enableScripts true
                     :localResourceRoots #js[bundle-uri]})
-          (set! (.-html webview) (get-loading-html))
-
           ;; This listener is installed before resolution so panel disposal is
-          ;; the durable cancellation signal for the background poll.
+          ;; the durable cancellation signal for background initialization.
           (.onDidDispose webviewpanel
             (fn []
               (reset! disposed? true)
@@ -636,11 +634,24 @@
                 (kill-marimo! (.. document -uri -fsPath)))
               (doseq [d disposables]
                 (.dispose d))))
-          (resolve js/undefined)
-
           (go
             (try
-              (let [readiness (<! (wait-for-server-ready! token disposed?))]
+              (let [cached-content (try
+                                     (<p! (ws-read nyanlib-uri))
+                                     (catch :default _e nil))
+                    cached? (some? cached-content)
+                    _ (when (and (not cached?) (not @disposed?))
+                        (set! (.-html webview) (get-loading-html)))
+                    _ (resolve js/undefined)
+                    readiness (cond
+                                (editor-resolution-cancelled? token disposed?)
+                                :cancelled
+
+                                cached?
+                                :ready
+
+                                :else
+                                (<! (wait-for-server-ready! token disposed?)))]
                 (cond
                   (= readiness :cancelled)
                   nil
@@ -653,50 +664,45 @@
 
                   :else
                   (when-not @disposed?
-                    ;; Ensure models.nyanlib exists after the server's startup
-                    ;; cycle has settled, then seed Mosaic from that published
-                    ;; snapshot.
-                    (when-not (<! (ws-exists? nyanlib-uri))
-                      (<p! (ws-write nyanlib-uri "{}")))
+                    ;; Keep the generated library outside VS Code's TextDocument
+                    ;; lifecycle. The server owns filesystem watching and this
+                    ;; serialized channel owns reads.
+                    (let [models-content (if cached?
+                                           cached-content
+                                           (<p! (ws-read nyanlib-uri)))]
+                      (when-not @disposed?
+                        (set! (.-html webview) (get-html document webview models-content 1))
 
-                    (when-not @disposed?
-                      ;; Keep the generated library outside VS Code's TextDocument
-                      ;; lifecycle. The server owns filesystem watching and this
-                      ;; serialized channel owns reads and writes.
-                      (let [models-content (<p! (ws-read nyanlib-uri))]
-                        (when-not @disposed?
-                          (set! (.-html webview) (get-html document webview models-content 1))
+                        ;; The schematic remains a TextDocument. The model library is a
+                        ;; direct file channel, so it cannot become an editor conflict.
+                        (let [schem-ch (create-atom-channel webview document "schematic")
+                              models-ch (create-readonly-nyanlib-channel webview nyanlib-uri "models" models-content)
+                              atom-channels (atom {"schematic" schem-ch "models" models-ch})]
+                          (.push disposables (:disposable schem-ch))
+                          (.push disposables (:disposable models-ch))
 
-                          ;; The schematic remains a TextDocument. The model library is a
-                          ;; direct file channel, so it cannot become an editor conflict.
-                          (let [schem-ch (create-atom-channel webview document "schematic")
-                                models-ch (create-readonly-nyanlib-channel webview nyanlib-uri "models" models-content)
-                                atom-channels (atom {"schematic" schem-ch "models" models-ch})]
-                            (.push disposables (:disposable schem-ch))
-                            (.push disposables (:disposable models-ch))
+                          ;; The typed server subscription is the only filesystem
+                          ;; watcher. Queue a catch-up read after subscribing so a
+                          ;; write between the initial read and registration is seen.
+                          (.push disposables
+                                 (.onNyanlibChanged host-api (:reload! models-ch)))
+                          ((:reload! models-ch))
 
-                            ;; The typed server subscription is the only filesystem
-                            ;; watcher. Queue a catch-up read after subscribing so a
-                            ;; write between the initial read and registration is seen.
-                            (.push disposables
-                                   (.onNyanlibChanged host-api (:reload! models-ch)))
-                            ((:reload! models-ch))
+                          ;; Track this webview for the zoomToFit command
+                          (swap! schematic-webviews assoc uri-key webview)
 
-                            ;; Track this webview for the zoomToFit command
-                            (swap! schematic-webviews assoc uri-key webview)
+                          ;; Message router — pass document URI for marimo (local file:// only)
+                          (setup-message-router! webview atom-channels (or ws-root doc-uri) (.-uri document) document)
 
-                            ;; Message router — pass document URI for marimo (local file:// only)
-                            (setup-message-router! webview atom-channels (or ws-root doc-uri) (.-uri document) document)
-
-                            ;; Save SVG sidecar on document save
-                            (let [save-disposable
-                                  (.. vscode/workspace
-                                      (onDidSaveTextDocument
-                                        (fn [^js saved-doc]
-                                          (when (= (.. saved-doc -uri (toString))
-                                                   (.. document -uri (toString)))
-                                            (save-svg-sidecar! webview doc-uri basename)))))]
-                              (.push disposables save-disposable)))))))))
+                          ;; Save SVG sidecar on document save
+                          (let [save-disposable
+                                (.. vscode/workspace
+                                    (onDidSaveTextDocument
+                                      (fn [^js saved-doc]
+                                        (when (= (.. saved-doc -uri (toString))
+                                                 (.. document -uri (toString)))
+                                          (save-svg-sidecar! webview doc-uri basename)))))]
+                            (.push disposables save-disposable))))))))
               (catch :default e
                 (js/console.error "Mosaic background initialization failed:" e)))))))))
 
