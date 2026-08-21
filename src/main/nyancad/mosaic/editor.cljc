@@ -2555,13 +2555,14 @@
   [e]
   (swap! ui update ::pointer-cache dissoc (.-pointerId e)))
 
-;; @tags mosaic wire tool
+;; @tags mosaic clipboard, mosaic wire tool
 (defn on-pointer-down-element [k e]
   (.stopPropagation e)
   (cm/clear-context-menu)
   (let [id (.-pointerId e)
         entry {:x (.-clientX e) :y (.-clientY e)}
-        is-dblclick (and (.-isPrimary e) (check-double-click e))]
+        paste? (some? @paste-staging)
+        is-dblclick (and (not paste?) (.-isPrimary e) (check-double-click e))]
     (swap! ui assoc-in [::pointer-cache id] entry)
     (cond
       ;; Double-click: handle and skip normal processing
@@ -2579,6 +2580,9 @@
       (= (.-button e) 1)
       (do (reset! last-coord [(.-clientX e) (.-clientY e)])
           (momentary-tool! ::pan))
+
+      ;; The active paste owns primary interaction until pointer-up commits it.
+      paste? nil
 
       (.-isPrimary e)
       (drag-start k e))))
@@ -2688,7 +2692,7 @@
         (<! (done? schematic))
         (post-action!)))))
 
-;; @tags mosaic wire tool
+;; @tags mosaic clipboard, mosaic wire tool
 (defn drag-end [e]
   (.stopPropagation e)
   (let [bg? (= (.-target e) (.-currentTarget e))
@@ -2706,7 +2710,7 @@
           (maybe-restore-tool!)))
       (= (::tool @ui) ::eraser) (post-action!)
       (= (::tool @ui) ::wire) nil
-      (::paste-staging @ui) (commit-paste (::paste-staging @ui) dx dy)
+      @paste-staging (commit-paste @paste-staging dx dy)
       :else (end-ui bg? selected dx dy))))
 
 ;; @tags mosaic device tray, mosaic model picker
@@ -3537,13 +3541,13 @@
          [:circle {:cx (/ icon-size 2) :cy (/ icon-size 2) :r (/ icon-size 3) :fill "white"}]
          [cm/exclamation-diamond {:size icon-size}]]))]))
 
+;; @tags mosaic clipboard
 (defn tool-elements []
   (let [{sel ::selected
          dr ::dragging
          v ::staging
          tool ::tool
          st ::stretch
-         paste-staging ::paste-staging
          {x :x y :y :or {x 0 y 0}} ::delta
          [sx sy] ::mouse-start} @ui
         ;; Unrounded: the staged ghost follows the cursor smoothly; the grid
@@ -3563,9 +3567,9 @@
                      :y (* (min sy (+ sy y)) grid-size)
                      :width (abs (* x grid-size))
                      :height (abs (* y grid-size))}]
-      (and paste-staging (= dr ::device))
+      (and @paste-staging (= dr ::device))
       [:g.staging {:style {:transform (str "translate(" vx "px, " vy "px)")}}
-       [schematic-elements paste-staging]]
+       [schematic-elements @paste-staging]]
       (and sel dr)
       [:<>
        ;; Selected devices ride one uniform translate.
@@ -3782,7 +3786,7 @@
   source mid-paste. Also prevents placing a device mid-drag generally."
   [f]
   (fn [& args]
-    (when-not (or (::dragging @ui) (::paste-staging @ui))
+    (when-not (or (::dragging @ui) @paste-staging)
       (apply f args))))
 
 ;; @tags editor keyboard shortcuts
