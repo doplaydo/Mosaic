@@ -3096,7 +3096,8 @@
 (defn copy []
   (let [sel @selected
         sch @schematic
-        devs (map (comp #(dissoc % :_rev :_id) sch) sel)]
+        strip-irl (fn [m] (apply dissoc m (filter #(clojure.string/starts-with? (name %) "irl_") (keys m))))
+        devs (map (comp strip-irl #(dissoc % :_rev :_id) sch) sel)]
     (swap! local assoc (str "local" sep "clipboard") {:data devs})))
 
 ;; @tags mosaic clipboard
