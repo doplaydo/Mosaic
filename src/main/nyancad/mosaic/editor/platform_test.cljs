@@ -38,7 +38,12 @@
 ;; UI hooks — no-ops in tests.
 (defn notebook-panel [_state] nil)
 (defn secondary-menu-items [_ui] nil)
-(defn open-schematic [_model-id] nil)
-(defn send-to-agent [_data _label] nil)
+;; @tags property editing, model identity
+(defn editable-model? [model-id _model-def]
+  (boolean (seq model-id)))
+;; @tags property editing, model identity
+(defn edit-model [_model-id] nil)
+;; @tags schematic reference context
+(defn send-to-agent [_document-key _data _label] nil)
 (defn resolve-symbol-url [_path] nil)
 (defn init-extra! [] nil)

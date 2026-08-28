@@ -10,7 +10,7 @@
                 :test   nyancad.mosaic.editor.platform-test)
              :refer [group schematic modeldb snapshots simulations local
                      done? syncactive notebook-panel secondary-menu-items
-                     open-schematic send-to-agent resolve-symbol-url
+                     editable-model? edit-model send-to-agent resolve-symbol-url
                      init-extra! root]]
             [clojure.spec.alpha :as s]
             [cljs.core.async :refer [go <!]]
@@ -24,15 +24,12 @@
              :refer [grid-size debounce sconj
                      point transform transform-vec
                      mosfet-shape bjt-conn b64encode]]))
-
-;; @tags factory card dragging, mosaic port exposure
+;; @tags factory card dragging
 (defn make-names
   "Returns a lazy sequence of available names for a device type (e.g. R1, R2, R3...)"
-  ([base]
-   (make-names base @schematic))
-  ([base sch]
-   (let [names (map #(str (cm/initial base) %) (next (range)))]
-     (remove #(sch (str group sep %)) names))))
+  [base]
+  (let [names (map #(str (cm/initial base) %) (next (range)))]
+    (remove #(@schematic (str group sep %)) names)))
 
 ;; @tags factory card dragging
 (defn make-name [base]
@@ -105,32 +102,29 @@
          build-wire-networks build-netlist build-net-annotations build-net-type-index
          port-wire-start)
 
-;; @tags reactive indices
+;; @tags reactive indices, mosaic port exposure
 (defn post-action!
-  "Record undo checkpoint, split wires, and annotate :nets/:net after a user
-   action. Returns a channel that completes when done.
-
-   The commit pipeline calls the `build-*` indices directly on a single
-   `@schematic` snapshot rather than derefing the reactive tracks — see the
-   `reactive indices` spec for why (snapshot consistency, freshness across its
-   own splits, independence from reactive timing)."
-  []
-  (go
-    (<! (done? schematic))
-    (cm/newdo undotree @schematic)
-    (let [pt-idx (build-point-index @schematic)]
-      (doseq [[w coords] (build-wire-split-index @schematic pt-idx)]
-        (split-wire w coords pt-idx)
-        (<! (done? schematic))))
-    (<! (done? schematic))
-    (let [sch      @schematic
-          pt-idx   (build-point-index sch)
-          networks (build-wire-networks sch pt-idx)
-          nets     (build-netlist networks)
-          net-types (build-net-type-index networks pt-idx)
-          updates  (build-net-annotations sch nets net-types)]
-      (when (seq updates)
-        (swap! schematic (partial merge-with merge) updates)))))
+  "Split wires, annotate nets, and record one undo checkpoint after a user action."
+  ([] (post-action! @modeldb))
+  ([models-snapshot]
+   (go
+     (<! (done? schematic))
+     (let [sch @schematic
+           pt-idx (build-point-index sch models-snapshot)]
+       (doseq [[w coords] (build-wire-split-index sch pt-idx)]
+         (split-wire w coords pt-idx)
+         (<! (done? schematic))))
+     (<! (done? schematic))
+     (let [sch       @schematic
+           pt-idx    (build-point-index sch models-snapshot)
+           networks  (build-wire-networks sch pt-idx)
+           nets      (build-netlist networks)
+           net-types (build-net-type-index networks pt-idx)
+           updates   (build-net-annotations sch nets net-types)]
+       (when (seq updates)
+         (swap! schematic (partial merge-with merge) updates)
+         (<! (done? schematic))))
+     (cm/newdo undotree @schematic))))
 
 (defn restore [state]
   (let [;; Ensure keys are strings (schematic uses string device IDs)
@@ -1125,27 +1119,27 @@
                       ::sym #'diode-sym
                       ::category "passive"
                       ::props []}
-             "led" {::bg [1 1]
-                    ::conn [{:name "P" :x 1 :y 0 :type "electric"}
-                            {:name "O" :x 2 :y 1 :type "photonic"}
-                            {:name "N" :x 1 :y 2 :type "electric"}]
+              "led" {::bg [1 1]
+                     ::conn [{:name "P" :x 1 :y 0 :type "electric" :side :top}
+                             {:name "O" :x 2 :y 1 :type "photonic" :side :right}
+                             {:name "N" :x 1 :y 2 :type "electric" :side :bottom}]
                     ::sym #'diode-sym
                     ::category "photonic-active"
                     ::template "{self.name}"
                     ::props []}
-             "photodiode" {::bg [1 1]
-                           ::conn [{:name "P" :x 1 :y 0 :type "electric"}
-                                   {:name "O" :x 2 :y 1 :type "photonic"}
-                                   {:name "N" :x 1 :y 2 :type "electric"}]
+              "photodiode" {::bg [1 1]
+                            ::conn [{:name "P" :x 1 :y 0 :type "electric" :side :top}
+                                    {:name "O" :x 2 :y 1 :type "photonic" :side :right}
+                                    {:name "N" :x 1 :y 2 :type "electric" :side :bottom}]
                            ::sym #'diode-sym
                            ::category "photonic-active"
                            ::template "{self.name}"
                            ::props []}
-             "modulator" {::bg [1 1]
-                          ::conn [{:name "P" :x 1 :y 0 :type "electric"}
-                                  {:name "1" :x 0 :y 1 :type "photonic"}
-                                  {:name "2" :x 2 :y 1 :type "photonic"}
-                                  {:name "N" :x 1 :y 2 :type "electric"}]
+              "modulator" {::bg [1 1]
+                           ::conn [{:name "P" :x 1 :y 0 :type "electric" :side :top}
+                                   {:name "1" :x 0 :y 1 :type "photonic" :side :left}
+                                   {:name "2" :x 2 :y 1 :type "photonic" :side :right}
+                                   {:name "N" :x 1 :y 2 :type "electric" :side :bottom}]
                           ::sym #'diode-sym
                           ::category "photonic-active"
                           ::template "{self.name}"
@@ -1241,11 +1235,11 @@
              ;; geometry (one photonic pin `P`, the sun/ring symbol), everything
              ;; else the plain size-1 port. The pin keeps the port net-key `P`,
              ;; so connectivity is identical to a plain port.
-             ;; @tags circulax simulation
-             "port" {::bg   {"emitter" cm/twoport-bg, "detector" cm/twoport-bg, ::default []}
-                     ::conn {"emitter"  [{:name "P" :x 2 :y 1 :type "photonic"}]
-                             "detector" [{:name "P" :x 2 :y 1 :type "photonic"}]
-                             ::default  [{:name "P" :x 0 :y 0}]}
+              ;; @tags circulax simulation
+              "port" {::bg   {"emitter" cm/twoport-bg, "detector" cm/twoport-bg, ::default []}
+                      ::conn {"emitter"  [{:name "P" :x 2 :y 1 :type "photonic" :side :right}]
+                              "detector" [{:name "P" :x 2 :y 1 :type "photonic" :side :right}]
+                              ::default  [{:name "P" :x 0 :y 0 :side :right}]}
                      ::sym  {"emitter" optical-source-elements
                              "detector" optical-detector-elements
                              ::default  port-sym}
@@ -1332,9 +1326,10 @@
                                         {:x (+ (if w 1 0) bx) :y (+ (if h 1 0) by)})
                                       size transform x y))]))
 
-(defn circuit-locations [{:keys [:x :y :model :transform :type]}]
+;; @tags reactive indices, mosaic port exposure
+(defn circuit-locations [models-snapshot {:keys [:x :y :model :transform :type]}]
   (let [transform (or transform cm/IV)
-        mod (get @modeldb (cm/model-key model))
+        mod (get models-snapshot (cm/model-key model))
         ports (:ports mod)
         conn (if ports (cm/port-locations ports type) [])
         [w h] (if ports (cm/port-perimeter ports type) [1 1])
@@ -1344,7 +1339,8 @@
                                         {:x (inc bx) :y (inc by)})
                                       size transform x y))]))
 
-(defn device-locations [dev]
+;; @tags reactive indices, mosaic port exposure
+(defn device-locations [models-snapshot dev]
   (let [cell (:type dev)]
     (cond
       (= cell "wire") (wire-locations dev)
@@ -1352,47 +1348,77 @@
       (= cell "polyline") [[] []]
       (and (contains? models cell) (::conn (get models cell)))
       (builtin-locations dev)
-      :else (circuit-locations dev))))
+      :else (circuit-locations models-snapshot dev))))
 
-(defn device-port-types
-  "Return typed port maps [{:x :y :type ...}] for a device after rotation."
-  [dev]
+(def ^:private port-side-vectors
+  {:left [-1 0]
+   :right [1 0]
+   :top [0 -1]
+   :bottom [0 1]})
+
+;; @tags mosaic port exposure
+(defn- world-port-direction [transform side]
+  (when-let [[sx sy] (port-side-vectors (keyword side))]
+    (let [[a b c d _ _] (or transform cm/IV)
+          dx (+ (* a sx) (* c sy))
+          dy (+ (* b sx) (* d sy))]
+      (if (> (abs dx) (abs dy))
+        (if (neg? dx) :left :right)
+        (if (neg? dy) :top :bottom)))))
+
+;; @tags mosaic port exposure, reactive indices
+(defn- transformed-device-ports
+  "Return canonical transformed descriptors for a device from one model snapshot."
+  [models-snapshot dev]
   (let [cell (:type dev)
         {:keys [x y model]} dev
-        transform (or (:transform dev) cm/IV)]
+        transform (or (:transform dev) cm/IV)
+        builtin? (and (contains? models cell) (::conn (get models cell)))
+        [conn size]
+        (if builtin?
+          (let [mod (get models cell)
+                conn (resolve-field mod ::conn dev)
+                bg (resolve-field mod ::bg dev)
+                [w h] (when (vector? bg) bg)]
+            [conn
+             (if (and (number? w) (number? h))
+               (+ 2 (max w h))
+               (cm/pattern-size conn))])
+          (let [mod (get models-snapshot (cm/model-key model))
+                ports (:ports mod)
+                conn (if ports (cm/port-locations ports cell) [])
+                [w h] (if ports (cm/port-perimeter ports cell) [1 1])]
+            [conn (+ 2 (max w h))]))]
+    (map #(assoc % :direction (world-port-direction transform (:side %)))
+         (rotate-shape conn size transform x y))))
+
+;; @tags mosaic port exposure, reactive indices
+(defn device-port-types
+  "Return typed port maps [{:x :y :type ...}] for a device after rotation."
+  [models-snapshot dev]
+  (let [cell (:type dev)]
     (cond
       (= cell "wire") nil
       (= cell "text") nil
       (= cell "polyline") nil
-      (and (contains? models cell) (::conn (get models cell)))
-      (let [mod (get models cell)
-            conn (resolve-field mod ::conn dev)
-            bg (resolve-field mod ::bg dev)
-            [w h] (when (vector? bg) bg)
-            size (if (and (number? w) (number? h))
-                   (+ 2 (max w h))
-                   (cm/pattern-size conn))]
-        (rotate-shape conn size transform x y))
-      :else
-      (let [mod (get @modeldb (cm/model-key model))
-            ports (:ports mod)
-            conn (if ports (cm/port-locations ports cell) [])
-            [w h] (if ports (cm/port-perimeter ports cell) [1 1])
-            size (+ 2 (max w h))]
-        (rotate-shape conn size transform x y)))))
+      :else (let [builtin? (and (contains? models cell) (::conn (get models cell)))]
+              (map #(cond-> (dissoc % :direction)
+                      builtin? (dissoc :side))
+                   (transformed-device-ports models-snapshot dev))))))
 
+;; @tags livewire auto-route lvs arrows, mosaic port exposure
 (defn- find-port-world-pos
   "Absolute grid coords of [dev-id port-name] in sch, or nil if either the
    device or the port is missing. Used by `schematic-airwires` to anchor an
    airwire arc at the actual Mosaic device pins (a polyline's own vertices
    live in Livewire's µm/y-down frame and don't apply here)."
-  [sch dev-id port-name]
+  [models-snapshot sch dev-id port-name]
   (when-let [dev (get sch dev-id)]
     (let [target (name port-name)]
       (some (fn [p]
               (when (= (name (:name p)) target)
                 [(:x p) (:y p)]))
-            (device-port-types dev)))))
+            (device-port-types models-snapshot dev)))))
 
 (defn- airwire-arc
   "A subtle dashed-red 'airwire' ratsnest arc between two grid points `p1`
@@ -1426,37 +1452,40 @@
   [sch dev-id port-name]
   (get-in sch [dev-id :nets (keyword port-name)]))
 
-(defn- polyline-airwire [sch k v]
+;; @tags livewire auto-route lvs arrows, reactive indices
+(defn- polyline-airwire [models-snapshot sch k v]
   (let [{:keys [start finish]} (:terminals v)
         s-net (net-at sch (:component_id start) (:port_name start))
         f-net (net-at sch (:component_id finish) (:port_name finish))]
     (when (mismatched-nets? s-net f-net)
-      (let [p1 (find-port-world-pos sch (:component_id start) (:port_name start))
-            p2 (find-port-world-pos sch (:component_id finish) (:port_name finish))]
+      (let [p1 (find-port-world-pos models-snapshot sch (:component_id start) (:port_name start))
+            p2 (find-port-world-pos models-snapshot sch (:component_id finish) (:port_name finish))]
         (when (and p1 p2)
           (airwire-arc [:poly k] p1 p2
                        "Connection present in layout but missing in schematic"))))))
 
-(defn- attached-port-airwire [sch k v]
+;; @tags livewire auto-route lvs arrows, reactive indices
+(defn- attached-port-airwire [models-snapshot sch k v]
   (let [ap (:attached_port v)
         port-net (get-in v [:nets :P])
         dev-net (net-at sch (:component_id ap) (:port_name ap))]
     (when (and ap (mismatched-nets? port-net dev-net))
-      (let [p1 (find-port-world-pos sch k "P")
-            p2 (find-port-world-pos sch (:component_id ap) (:port_name ap))]
+      (let [p1 (find-port-world-pos models-snapshot sch k "P")
+            p2 (find-port-world-pos models-snapshot sch (:component_id ap) (:port_name ap))]
         (when (and p1 p2)
           (airwire-arc [:port k] p1 p2
                        "Connection present in layout but missing in schematic"))))))
 
-(defn- build-schematic-airwires [sch]
+;; @tags livewire auto-route lvs arrows, reactive indices
+(defn- build-schematic-airwires [models-snapshot sch]
   (concat
    (keep (fn [[k v]]
            (when (= "polyline" (:type v))
-             (polyline-airwire sch k v)))
+              (polyline-airwire models-snapshot sch k v)))
          sch)
    (keep (fn [[k v]]
            (when (and (= "port" (:type v)) (:attached_port v))
-             (attached-port-airwire sch k v)))
+              (attached-port-airwire models-snapshot sch k v)))
          sch)))
 
 ;; --- point-index: unified per-point fold ---------------------------------
@@ -1484,124 +1513,107 @@
       type    (update-in [pt :types] (fnil conj #{}) type)
       counter (update-in [pt counter] (fnil inc 0)))))
 
-(defn- record-device [idx [id dev]]
-  (let [[connloc bodyloc] (device-locations dev)]
+;; @tags reactive indices, mosaic port exposure
+(defn- record-device [models-snapshot idx [id dev]]
+  (let [[legacy-connloc bodyloc] (device-locations models-snapshot dev)
+        ports (when (attributable? dev)
+                (transformed-device-ports models-snapshot dev))
+        connloc (if (attributable? dev)
+                  (map (juxt :x :y) ports)
+                  legacy-connloc)]
     (as-> idx $
       (record-ids $ :ids id connloc)
       (record-ids $ :body-ids id bodyloc)
-      (if (attributable? dev)
-        (reduce #(record-port %1 id %2) $ (device-port-types dev))
+      (if ports
+        (reduce #(record-port %1 id %2) $ ports)
         $))))
 
+;; @tags reactive indices, mosaic port exposure
 (defn build-point-index
   "{[x y] → {:ids #{dev-ids with a connection endpoint here}
              :body-ids #{dev-ids with body/path here}
              :ports [[dev-id port-name] ...]   ; attributable devices only
              :types #{\"photonic\" \"electric\"}
              :photonic-count N :electric-count N}}"
-  [sch]
-  (reduce record-device {} sch))
+  [sch models-snapshot]
+  (reduce (partial record-device models-snapshot) {} sch))
 
 ;; @tags reactive indices
 ;; Cached, render-facing form of build-point-index. See the `reactive indices`
 ;; spec for when to deref this track vs. call the builder directly.
-(def point-index (r/track #(build-point-index @schematic)))
+(def point-index (r/track #(build-point-index @schematic @modeldb)))
 
 ;; @tags mosaic port exposure
-(defn- connection-endpoint-ids
-  [sch pt-idx point]
-  (into #{}
-        (remove #(and (= "port" (get-in sch [% :type]))
-                      (= "text" (get-in sch [% :variant]))))
-        (get-in pt-idx [point :ids])))
+(defn non-text-endpoint-ids
+  "Remove text-only port labels from a point-index endpoint ID collection."
+  [sch ids]
+  (into #{} (remove #(= "text" (get-in sch [% :variant]))) ids))
 
 ;; @tags mosaic port exposure
-(defn unconnected-device-ports
-  [sch pt-idx device-id]
-  (if-let [dev (get sch device-id)]
-    (->> (device-port-types dev)
-         (filter #(#{:left :right :top :bottom} (:side %)))
-         (filter (fn [{:keys [x y]}]
-                   (empty? (disj (connection-endpoint-ids sch pt-idx [x y]) device-id))))
-         (sort-by (juxt :y :x #(str (:name %))))
-         vec)
-    []))
-
-(def ^:private exposure-directions
-  {:left   [[-1 0] cm/IV]
-   :right  [[1 0] [-1 0 0 1 0 0]]
-   :top    [[0 -1] [0 1 -1 0 0 0]]
-   :bottom [[0 1] [0 -1 1 0 0 0]]})
+(defn- named-device-ports [models-snapshot dev]
+  (filter #(some? (:name %)) (transformed-device-ports models-snapshot dev)))
 
 ;; @tags mosaic port exposure
-(defn- port-outward-direction
-  [dev port]
-  (let [[sx sy] (first (exposure-directions (:side port)))
-        [a b c d _ _] (or (:transform dev) cm/IV)
-        dx (+ (* a sx) (* c sy))
-        dy (+ (* b sx) (* d sy))]
-    (if (> (abs dx) (abs dy))
-      (if (neg? dx) :left :right)
-      (if (neg? dy) :top :bottom))))
+(defn exposable-device-ports
+  "Return the selected component's named ports with dashed-NC occupancy."
+  [models-snapshot sch pt-idx device-id]
+  (let [dev (get sch device-id)]
+    (if (and dev (attributable? dev))
+      (filterv (fn [{:keys [x y]}]
+                 (= #{device-id}
+                    (non-text-endpoint-ids sch (get-in pt-idx [[x y] :ids]))))
+               (named-device-ports models-snapshot dev))
+      [])))
 
 ;; @tags mosaic port exposure
-(defn- clear-exposure-corridor?
-  [pt-idx [x y] [dx dy]]
-  (every? #(let [{:keys [ids body-ids]} (get pt-idx %)]
-             (and (empty? ids) (empty? body-ids)))
-          [[(+ x dx) (+ y dy)]
-           [(+ x (* 2 dx)) (+ y (* 2 dy))]]))
+(defn port-exposure-state
+  "Return properties-action state for device-id, or nil when inapplicable."
+  [models-snapshot sch pt-idx device-id]
+  (let [dev (get sch device-id)
+        ports (when (and dev (attributable? dev))
+                (vec (named-device-ports models-snapshot dev)))]
+    (when (seq ports)
+      {:disabled? (empty? (exposable-device-ports
+                           models-snapshot sch pt-idx device-id))})))
+
+(def ^:private marker-transforms
+  {:left cm/IV
+   :right [-1 0 0 1 0 0]
+   :top [0 1 -1 0 0 0]
+   :bottom [0 -1 1 0 0 0]})
+
+;; @tags mosaic port exposure
+(defn- next-exposure-name [sch]
+  (let [reserved (into (set (map str (keys sch)))
+                       (keep (comp #(when (seq %) %) str :name))
+                       (vals sch))]
+    (first
+     (remove #(or (contains? reserved %)
+                  (contains? reserved (str group sep %)))
+             (map #(str "P" %) (next (range)))))))
 
 ;; @tags mosaic port exposure
 (defn build-port-exposure-docs
-  "Build the complete deterministic doc batch for every currently unconnected
-   port on `device-id`, without mutating the schematic.
-
-   Each preferred corridor is checked against a working schematic containing
-   docs staged earlier in this same batch. Occupied corridors fall back to a
-   co-located marker with no wire."
-  [sch pt-idx device-id]
-  (let [dev (get sch device-id)
-        ports (unconnected-device-ports sch pt-idx device-id)]
-    (:docs
-     (reduce
-      (fn [{working-sch :sch docs :docs} {:keys [x y] :as port}]
-        (let [[[dx dy] port-transform]
-              (exposure-directions (port-outward-direction dev port))
-              current-idx (build-point-index working-sch)
-              corridor-clear? (clear-exposure-corridor? current-idx [x y] [dx dy])
-              px (if corridor-clear? (+ x (* 2 dx)) x)
-              py (if corridor-clear? (+ y (* 2 dy)) y)
-              port-name (first (make-names "port" working-sch))
-              port-id (str group sep port-name)
-              port-doc {:type "port"
-                        :x px
-                        :y py
-                        :transform port-transform
-                        :name port-name}
-              wire-name (when corridor-clear?
-                          (first (make-names "wire"
-                                             (assoc working-sch port-id port-doc))))
-              wire-id (when wire-name (str group sep wire-name))
-              wire-doc (when corridor-clear?
-                         {:type "wire"
-                          :x x
-                          :y y
-                          :rx (* 2 dx)
-                          :ry (* 2 dy)
-                          :variant "d"
-                          :name wire-name})
-              additions (cond-> {port-id port-doc}
-                          wire-doc (assoc wire-id wire-doc))]
-          {:sch (merge working-sch additions)
-           :docs (merge docs additions)}))
-      {:sch sch :docs {}}
-      ports))))
+  "Build one deterministic co-located port-marker batch without mutating sch."
+  [models-snapshot sch pt-idx device-id]
+  (:docs
+   (reduce
+    (fn [{working-sch :sch docs :docs} {:keys [x y direction]}]
+      (let [port-name (next-exposure-name working-sch)
+            port-id (str group sep port-name)
+            port-doc {:type "port"
+                      :x x
+                      :y y
+                      :transform (marker-transforms direction)
+                      :name port-name}]
+        {:sch (assoc working-sch port-id port-doc)
+         :docs (assoc docs port-id port-doc)}))
+    {:sch sch :docs {}}
+    (exposable-device-ports models-snapshot sch pt-idx device-id))))
 
 ;; @tags mosaic port exposure
-(defn expose-unconnected-ports!
-  "Wait for settled state, submit one exposure batch, and checkpoint it.
-   Returns a channel carrying the added docs, or nil for a no-op."
+(defn expose-ports!
+  "Write all currently exposable markers as one batch and run one action lifecycle."
   [device-id]
   (go
     (loop [pending (done? schematic)]
@@ -1611,23 +1623,13 @@
           (when-not (identical? pending next-pending)
             (recur next-pending)))))
     (let [sch @schematic
-          docs (build-port-exposure-docs sch (build-point-index sch) device-id)]
+          models-snapshot @modeldb
+          pt-idx (build-point-index sch models-snapshot)
+          docs (build-port-exposure-docs models-snapshot sch pt-idx device-id)]
       (when (seq docs)
         (swap! schematic merge docs)
-        (post-action!)
+        (<! (post-action! models-snapshot))
         docs))))
-
-;; @tags mosaic port exposure
-(defn port-exposure-state
-  "Return toolbar exposure state for device-id, or nil when inapplicable."
-  [sch pt-idx device-id]
-  (let [dev (get sch device-id)
-        ports (:ports (get @modeldb (cm/model-key (:model dev))))]
-    (when (and (= "ckt" (:type dev))
-               (seq (:model dev))
-               (some #(exposure-directions (keyword (:side %))) ports))
-      {:disabled? (empty? (unconnected-device-ports
-                           sch pt-idx device-id))})))
 
 ;; --- Shift-drag connectivity: stretch wires attached to dragged devices ---
 
@@ -2976,7 +2978,7 @@
   (swap! model-popup-category #(matching-tags (picker-models device-type) %))
   (reset! cm/modal-content [model-selector-popup device-type on-select]))
 
-;; @tags property editing, terminology, mosaic selection toolbar, mosaic port exposure
+;; @tags property editing, terminology, mosaic selection toolbar, model identity, mosaic port exposure
 (defn deviceprops [key]
   (let [props (r/cursor schematic [key :props])
         device-type (r/cursor schematic [key :type])
@@ -2984,12 +2986,41 @@
         name (r/cursor schematic [key :name])
         show-prop-insert (r/atom false)]
     (fn [key]
-      (let [model-def (get @modeldb (cm/model-key @model))
+      (let [models-snapshot @modeldb
+            sch @schematic
+            model-def (get models-snapshot (cm/model-key @model))
+            exposure (port-exposure-state models-snapshot sch @point-index key)
             effective-default (or (when model-def (cm/generate-important-template (:props model-def)))
                                  (::template (get models @device-type))
                                  "{self.name}")]
         [:<>
          [:h1 (or @name key)]
+         [:div.device-actions
+          (when (editable-model? @model model-def)
+            [:button {:type "button"
+                      :title "Edit component"
+                      :on-click #(edit-model @model)}
+             [cm/edit]
+             [:span "Edit"]])
+          [:button {:type "button"
+                    :title "Ask Agent"
+                    :on-click (fn [e]
+                                (.stopPropagation e)
+                                (let [device (get @schematic key)]
+                                  (send-to-agent
+                                   key
+                                   device
+                                   (str (or @name key) " (" @device-type ")")))
+                                (cm/clear-context-menu))}
+           [cm/wand-icon]
+            [:span "Ask Agent"]]
+           (when exposure
+             [:button {:type "button"
+                       :title "Expose ports"
+                       :disabled (:disabled? exposure)
+                       :on-click #(expose-ports! key)}
+              [cm/expose-ports]
+              [:span "Expose ports"]])]
          [:div.properties
           [:label {:for "name" :title "Instance name"} "name"]
           [:input {:id "name"
@@ -3488,7 +3519,7 @@
         all-types (into (or port-types #{}) wire-type-set)]
     (first all-types)))
 
-;; @tags nyancir format, livewire auto-route lvs arrows
+;; @tags nyancir format, livewire auto-route lvs arrows, reactive indices
 (defn schematic-airwires
   "Top-level ratsnest layer. Draws dashed-red airwire arcs for two kinds of
    cross-editor connectivity hints:
@@ -3506,9 +3537,9 @@
 
    Sits above `schematic-elements` with a stroke-only hover target."
   []
-  (into [:<>] (build-schematic-airwires @schematic)))
+  (into [:<>] (build-schematic-airwires @modeldb @schematic)))
 
-;; @tags mosaic wire tool
+;; @tags mosaic wire tool, mosaic port exposure
 (defn schematic-dots []
   (let [icon-size (/ grid-size 2.5)
         icon-offset (- (/ grid-size 2) (/ icon-size 2))
@@ -3517,7 +3548,7 @@
      (doall
       (for [[[x y] {:keys [ids]}] @point-index
             :when (seq ids)
-            :let [n (count (remove #(= (get-in @schematic [% :variant]) "text") ids))
+            :let [n (count (non-text-endpoint-ids @schematic ids))
                   nc? (< n 2)
                   pt (when nc? (point-connection-type x y ids))]
             :when (and (not= n 2)
@@ -3640,16 +3671,6 @@
       :width tile
       :height tile})))
 
-;; @tags mosaic selection toolbar
-(defn- ask-agent-about
-  "Send device `k` to the agent as context, clearing the properties popup so
-   it is not left stranded over the agent panel."
-  [k]
-  (let [device (get @schematic k)]
-    (send-to-agent (assoc device :_id k)
-                   (str (or (:name device) k) " (" (:type device) ")"))
-    (cm/clear-context-menu)))
-
 ;; @tags mosaic selection toolbar, property editing
 (defn- open-device-props
   "Open the properties popup for device `k` at the button's lower-left corner,
@@ -3668,9 +3689,6 @@
   (let [sch @schematic
         sel (selected-devices sch @selected)
         single (when (= 1 (count sel)) (first sel))
-        dev (get sch single)
-        model-def (when single (get @modeldb (cm/model-key (:model dev))))
-        exposure (when single (port-exposure-state sch @point-index single))
         box @canvas-box
         tile (selection-anchor-rect sch sel)
         ;; Half a cell in, off the tile, is the tetris body the bar should
@@ -3714,20 +3732,6 @@
           [cm/delete]]]
         (when single
           [:div.toolbar-group
-           (when (and (seq (:model dev)) (not (cm/has-code-models? model-def)))
-             [:a {:title "Edit component"
-                  :on-click #(open-schematic (:model dev))}
-              [cm/edit]])
-           (when exposure
-             [:a.expose-unconnected-ports
-              (cond-> {:title "Expose unconnected ports"
-                       :aria-disabled (:disabled? exposure)}
-                (not (:disabled? exposure))
-                (assoc :on-click #(expose-unconnected-ports! single)))
-              [cm/expose-ports]])
-           [:a {:title "Ask Agent"
-                :on-click #(ask-agent-about single)}
-            [cm/wand-icon]]
            [:a {:title "Parameters"
                 :on-click #(open-device-props single %)}
             [cm/gear]]])]])))

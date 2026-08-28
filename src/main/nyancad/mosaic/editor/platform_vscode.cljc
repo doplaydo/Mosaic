@@ -65,13 +65,23 @@
 
 ;; --- Functions ---
 
-;; @tags model identity
-(defn open-schematic
-  "Open a subcircuit's .gsch file in VS Code via the extension host."
+;; @tags property editing, model identity
+(defn editable-model?
+  "True when a component identity can be opened as schematic or Python source."
+  [model-id _model-def]
+  (boolean (seq model-id)))
+
+;; @tags property editing, model identity
+(defn edit-model
+  "Open a subcircuit schematic or a Python factory's indexed source."
   [model-id]
-  (.postMessage vscode
-    #js{:type "open-file"
-        :filename model-id}))
+  (if (str/ends-with? model-id ".gsch")
+    (.postMessage vscode
+      #js{:type "open-file"
+          :filename model-id})
+    (.postMessage vscode
+      #js{:type "open-factory-source"
+          :factoryFqn model-id})))
 
 (defn notebook-panel
   "No notebook panel in VSCode."
@@ -92,11 +102,13 @@
                                      :viewType "gdsfactoryplus.livewireNyancirEditor"})}
     [cm/layout-icon]]])
 
+;; @tags schematic reference context
 (defn send-to-agent
   "Send a schematic element to the AI agent as context."
-  [data label]
+  [document-key data label]
   (.postMessage vscode
     #js{:type "send-to-agent"
+        :documentKey document-key
         :data (clj->js data)
         :label label}))
 

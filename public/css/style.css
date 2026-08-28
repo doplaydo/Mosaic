@@ -931,6 +931,45 @@ html {
     padding: 20px;
 }
 
+.mosaic-app .device-props .device-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.6em 20px;
+    border-bottom: 1px solid var(--color-border-light);
+}
+
+.mosaic-app .device-props .device-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    padding: 0.35em 0.6em;
+    border: 1px solid var(--color-border-light);
+    border-radius: 5px;
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    cursor: pointer;
+}
+
+.mosaic-app .device-props .device-actions button:hover {
+    background: var(--color-hover);
+}
+
+.mosaic-app .device-props .device-actions button:disabled {
+    cursor: default;
+}
+
+.mosaic-app .device-props .device-actions button:disabled:hover {
+    background: var(--color-surface);
+}
+
+.mosaic-app .device-props .device-actions svg {
+    width: 1em;
+    height: 1em;
+}
+
 /* Device props rendered inside the right-click context-menu popup.
    The popup reuses the sidebar's props editor, so size/scroll it like the
    old sidebar and neutralize the default .window padding (it would double up
@@ -974,12 +1013,6 @@ html {
 .mosaic-container .chrome svg,
 .mosaic-app .onboarding svg {
     fill: var(--color-text);
-}
-
-.mosaic-container .chrome [aria-disabled="true"] {
-    cursor: not-allowed;
-    opacity: 0.45;
-    pointer-events: none;
 }
 
 

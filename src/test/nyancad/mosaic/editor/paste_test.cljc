@@ -292,7 +292,7 @@
              ::e/staging nil
              ::e/paste-staging nil
              ::e/selected #{"R1"})
-      (with-redefs [e/post-action! (fn [] nil)]
+      (with-redefs [e/post-action! (fn ([] nil) ([_] nil))]
         (e/transform-selected cm/flip-y)
         (e/move-selected 2 -1))
       (is (= [1 0 0 -1 0 0] (get-in @pform/schematic ["R1" :transform])))

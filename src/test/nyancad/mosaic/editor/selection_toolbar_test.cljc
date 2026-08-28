@@ -18,7 +18,8 @@
    rect->screen); the bar's placement against that rect is CSS."
   (:require [cljs.test :refer [deftest is testing]]
             [nyancad.mosaic.test-dommatrix]
-            [nyancad.mosaic.editor :as e]))
+            [nyancad.mosaic.editor :as e]
+            [nyancad.mosaic.editor.platform-test :as platform]))
 
 (def ^:private sch
   "One of each selectable kind. Ports are devices: they carry props and a symbol,
@@ -28,6 +29,28 @@
    "port-1" {:type "port" :x 9 :y 0}
    "wire-1" {:type "wire" :x 2 :y 2 :rx 3 :ry 0}
    "text-1" {:type "text" :x 0 :y 9}})
+
+;; @tags property editing, model identity
+(deftest vscode-editable-model-requires-an-identity
+  (testing "an indexed nested schematic remains editable even though it is generated"
+    (is (true? (platform/editable-model?
+                "schematics/cspdk_subcircuit.gsch"
+                {:generated true :ports []}))))
+  (testing "a .gsch identity remains editable without a modeldb entry"
+    (is (true? (platform/editable-model? "cspdk_subcircuit.gsch" nil))))
+  (testing "a generated Python identity opens its indexed source"
+    (is (true? (platform/editable-model?
+                 "gfp4114_verification_gate.cells.generated_two_port"
+                 {:generated true :ports []}))))
+  (testing "a resolved non-generated Python identity stays editable"
+    (is (true? (platform/editable-model? "test.component" {:ports []}))))
+  (testing "an identity with inner code models remains editable"
+    (is (true? (platform/editable-model?
+                "schematics/code-backed.gsch"
+                {:generated true :models [{:name "layout"}]}))))
+  (testing "an empty or absent identity is rejected"
+    (is (false? (platform/editable-model? "" {:ports []})))
+    (is (false? (platform/editable-model? nil {:ports []})))))
 
 (deftest selected-devices-keeps-devices
   (testing "device ids pass through"
@@ -44,14 +67,15 @@
   (testing "wires and text together still yield nothing"
     (is (= #{} (e/selected-devices sch #{"wire-1" "text-1"})))))
 
+;; @tags mosaic selection toolbar
 (deftest selected-devices-filters-mixed-selections
   (testing "a mixed selection keeps only the devices"
     (is (= #{"R1"} (e/selected-devices sch #{"R1" "wire-1" "text-1"})))
     (is (= #{"R1" "C1" "port-1"}
            (e/selected-devices sch #{"R1" "C1" "port-1" "wire-1" "text-1"}))))
   (testing "the device count drives single-device actions"
-    ;; Ask Agent and Parameters appear at exactly one device; a box-select that
-    ;; caught a wire alongside one device is still a single-device selection.
+    ;; Parameters appears at exactly one device; a box-select that caught a wire
+    ;; alongside one device is still a single-device selection.
     (is (= 1 (count (e/selected-devices sch #{"R1" "wire-1"}))))
     (is (= 2 (count (e/selected-devices sch #{"R1" "C1" "wire-1"}))))))
 

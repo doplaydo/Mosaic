@@ -44,6 +44,18 @@
 (defn- sch [& entries]
   (into {} entries))
 
+;; @tags reactive indices
+(defn- point-index [schem]
+  (e/build-point-index schem @pform/modeldb))
+
+;; @tags reactive indices, mosaic port exposure
+(defn- device-locations [dev]
+  (e/device-locations @pform/modeldb dev))
+
+;; @tags reactive indices, mosaic port exposure
+(defn- device-port-types [dev]
+  (e/device-port-types @pform/modeldb dev))
+
 ;; ---------------------------------------------------------------------------
 ;; exrange — exclusive integer range
 ;; ---------------------------------------------------------------------------
@@ -144,12 +156,14 @@
 ;;   :<type>-count — count per type
 ;; Cells untouched by any device are absent from the map.
 
+;; @tags reactive indices
 (deftest point-index-empty-schematic
-  (is (= {} (e/build-point-index {}))))
+  (is (= {} (point-index {}))))
 
+;; @tags reactive indices
 (deftest point-index-single-resistor
   (testing "resistor at origin (0,0): P at (1,0), N at (1,2), body at (1,1)"
-    (let [idx (e/build-point-index (sch (resistor "R1" 0 0)))]
+    (let [idx (point-index (sch (resistor "R1" 0 0)))]
       (testing ":ids at both port cells"
         (is (= #{"R1"} (get-in idx [[1 0] :ids])))
         (is (= #{"R1"} (get-in idx [[1 2] :ids]))))
@@ -163,11 +177,12 @@
         (is (= #{"electric"} (get-in idx [[1 0] :types])))
         (is (= 1 (get-in idx [[1 0] :electric-count])))))))
 
+;; @tags reactive indices
 (deftest point-index-two-devices-sharing-a-cell
   (testing "R1 at (0,0) N-port lands at (1,2); R2 at (0,2) P-port lands at (1,2)"
     ;; R2 at (0, 2): P at (1, 2), N at (1, 4), body at (1, 3).
     ;; So (1, 2) is R1's N AND R2's P.
-    (let [idx (e/build-point-index (sch (resistor "R1" 0 0)
+    (let [idx (point-index (sch (resistor "R1" 0 0)
                                         (resistor "R2" 0 2)))
           cell (get idx [1 2])]
       (is (= #{"R1" "R2"} (:ids cell))
@@ -179,9 +194,10 @@
       (is (= 2 (:electric-count cell))
           "counts sum across devices"))))
 
+;; @tags reactive indices
 (deftest point-index-wire-only
   (testing "a wire's endpoints go into :ids; its path cells go into :body-ids; no :ports anywhere"
-    (let [idx (e/build-point-index (sch (wire "W1" 0 0 3 0)))]
+    (let [idx (point-index (sch (wire "W1" 0 0 3 0)))]
       (is (= #{"W1"} (get-in idx [[0 0] :ids])))
       (is (= #{"W1"} (get-in idx [[3 0] :ids])))
       (is (= #{"W1"} (get-in idx [[1 0] :body-ids])))
@@ -189,13 +205,15 @@
       (is (every? #(nil? (:ports %)) (vals idx))
           "wires have no :ports — attributable? is false"))))
 
+;; @tags reactive indices
 (deftest point-index-port-doc-no-attribution
   (testing "port doc lands in :ids (wire-like) but contributes no :ports (not attributable)"
-    (let [idx (e/build-point-index (sch (port-doc "P1" 5 5 "GND")))
+    (let [idx (point-index (sch (port-doc "P1" 5 5 "GND")))
           cell (get idx [5 5])]
       (is (contains? (:ids cell) "P1"))
       (is (nil? (:ports cell))))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest point-index-rotated-asymmetric-subcircuit-alignment
   ;; Contract: for any attributable device, every cell where the device
   ;; appears in :ids must also carry the device's port attribution in :ports,
@@ -220,7 +238,7 @@
       (let [schem (sch ["U1" {:type "ckt" :model "opamp"
                               :x 5 :y 5 :transform [0 1 -1 0 0 0]
                               :name "U1"}])
-            idx (e/build-point-index schem)
+            idx (point-index schem)
             id-cells (set (for [[pt {:keys [ids]}] idx
                                 :when (contains? ids "U1")]
                             pt))
@@ -239,29 +257,32 @@
 ;; endpoint sits on a selected device's port. Used by Shift+drag to determine
 ;; which wire ends follow the dragged devices.
 
+;; @tags reactive indices
 (deftest connected-wire-ends-single-wire
   (testing "wire attached to a selected device at its start endpoint"
     (let [schem (sch (resistor "R1" 0 0)       ; ports (1,0) (1,2)
                      (wire "W1" 1 2 0 3))       ; start at R1.N (1,2)
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           ends (e/connected-wire-ends schem pt-idx #{"R1"})]
       (is (= #{"W1"} (set (keys ends))))
       (is (= #{:start} (get ends "W1"))))))
 
+;; @tags reactive indices
 (deftest connected-wire-ends-excludes-selected-wires
   (testing "a wire that is itself selected is excluded from stretch targets"
     (let [schem (sch (resistor "R1" 0 0)
                      (wire "W1" 1 2 0 3))
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           ends (e/connected-wire-ends schem pt-idx #{"R1" "W1"})]
       (is (empty? ends)))))
 
+;; @tags reactive indices
 (deftest connected-wire-ends-both-ends
   (testing "wire connecting two selected devices has both ends flagged"
     (let [schem (sch (resistor "R1" 0 0)       ; N at (1,2)
                      (wire "W1" 1 2 0 2)        ; (1,2)→(1,4)
                      (resistor "R2" 0 4))       ; P at (1,4)
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           ends (e/connected-wire-ends schem pt-idx #{"R1" "R2"})]
       (is (= #{:start :end} (get ends "W1"))))))
 
@@ -323,8 +344,9 @@
 ;; Plus :wire->component {wire-id → component-index}. Component numbering
 ;; is deterministic: port-cell seeds sorted by [x y].
 
+;; @tags reactive indices
 (defn- build-networks [schem]
-  (let [pt-idx (e/build-point-index schem)]
+  (let [pt-idx (point-index schem)]
     (e/build-wire-networks schem pt-idx)))
 
 (deftest wire-networks-single-wire-between-two-devices
@@ -474,21 +496,23 @@
 ;; its component, or nil if none. All wires AND port docs in a component share
 ;; the resolved type.
 
+;; @tags reactive indices
 (deftest wire-type-photonic-propagates
   (testing "a photonic port at one end of a wire → wire is photonic"
     ;; Use an led (photonic output at (2,1)) so we get a "photonic" endpoint.
     ;; led at (0, 0): P (1, 0) electric, O (2, 1) photonic, N (1, 2) electric.
     (let [schem (sch ["LED1" {:type "led" :x 0 :y 0 :transform [1 0 0 1 0 0] :name "LED1"}]
                      (wire "W1" 2 1 3 0))  ; endpoint at (2, 1) photonic, other at (5, 1)
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           networks (e/build-wire-networks schem pt-idx)
           net-types (e/build-net-type-index networks pt-idx)]
       (is (= "photonic" (get net-types "W1"))))))
 
+;; @tags reactive indices
 (deftest wire-type-untyped-is-nil
   (testing "a wire with no typed endpoint stays nil"
     (let [schem (sch (wire "W1" 0 0 2 0))
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           networks (e/build-wire-networks schem pt-idx)
           net-types (e/build-net-type-index networks pt-idx)]
       (is (nil? (get net-types "W1"))))))
@@ -501,8 +525,9 @@
 ;; gets :nets with an entry for EVERY port — a disconnected pin gets a
 ;; floating netN rather than being absent.
 
+;; @tags reactive indices
 (defn- annotations [schem]
-  (let [pt-idx   (e/build-point-index schem)
+  (let [pt-idx   (point-index schem)
         networks (e/build-wire-networks schem pt-idx)
         nets     (e/build-netlist networks)
         net-types (e/build-net-type-index networks pt-idx)]
@@ -577,6 +602,7 @@
 ;; endpoint (:ids) of any doc, record the cell as a split point for that
 ;; wire. A wire not crossing anything has no entry.
 
+;; @tags reactive indices
 (deftest wire-split-detects-crossing
   (testing "wire passing through a device's port cell → split recorded"
     ;; Place R1 at (0, 0): port N at (1, 2).
@@ -584,18 +610,20 @@
     ;; (1, 2) — the body cell (interior) overlaps R1's port endpoint.
     (let [schem (sch (resistor "R1" 0 0)
                      (wire "W1" 0 2 3 0))
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           splits (e/build-wire-split-index schem pt-idx)]
       (is (contains? (get splits "W1") [1 2])
           "split point recorded at (1, 2) where W1's path meets R1.N"))))
 
+;; @tags reactive indices
 (deftest wire-split-ignores-non-crossing
   (testing "a wire not crossing any endpoint yields no split"
     (let [schem (sch (wire "W1" 0 0 3 0))
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           splits (e/build-wire-split-index schem pt-idx)]
       (is (empty? splits)))))
 
+;; @tags reactive indices
 (deftest wire-split-endpoint-match-does-not-count
   (testing "a wire landing exactly on a port cell at its OWN endpoint → not split"
     ;; W1 from (0, 0) to (1, 0): endpoint (1, 0) is R1.P, but that cell is
@@ -603,7 +631,7 @@
     ;; crossing must be in the path, not at the endpoint.
     (let [schem (sch (resistor "R1" 0 0)  ; P at (1, 0)
                      (wire "W1" 0 0 1 0)) ; endpoint coincides with R1.P
-          pt-idx (e/build-point-index schem)
+          pt-idx (point-index schem)
           splits (e/build-wire-split-index schem pt-idx)]
       (is (empty? splits)))))
 
@@ -618,12 +646,13 @@
 ;;     under replication instead of duplicating.
 ;;   - No original wire is ever left behind at full length.
 
+;; @tags reactive indices
 (defn- split-once
   "Reset the shared schematic to `schem`, split `wirename` at its crossing
    points, and return the resulting schematic map."
   [schem wirename]
   (reset! pform/schematic schem)
-  (let [pt-idx (e/build-point-index schem)
+  (let [pt-idx (point-index schem)
         coords (get (e/build-wire-split-index schem pt-idx) wirename)]
     (e/split-wire wirename coords pt-idx)
     @pform/schematic))
@@ -672,6 +701,7 @@
                   (for [[_ v] result :when (= "wire" (:type v))] v))
           "no surviving wire spans the whole original length"))))
 
+;; @tags reactive indices
 (deftest split-wire-hv-segment-survives-resplit
   (testing "an hv wire split into a segment with ry=0 must not be re-flagged"
     ;; Reproduce the reported bug: V1 at (8,4), GND port at (8,6), R2 at (5,3).
@@ -690,7 +720,7 @@
           "W1 is the shortened head segment")
       ;; Now simulate the second post-action! with the already-split schematic.
       ;; The shortened W1 must NOT appear in the wire-split-index.
-      (let [pt-idx2 (e/build-point-index result)
+      (let [pt-idx2 (point-index result)
             splits2 (e/build-wire-split-index result pt-idx2)]
         (is (not (contains? splits2 "W1"))
             "shortened W1 must not be re-flagged for splitting at its own endpoint")))))
@@ -791,6 +821,7 @@
             (is (< (js/Math.abs (- asx (* g (+ sx 0.1)))) 1e-6) (str tf " anchor x"))
             (is (< (js/Math.abs (- asy (* g (- sy 0.15)))) 1e-6) (str tf " anchor y"))))))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-model-ports-override-port-names
   (testing "straight with model ports uses model port names, not builtin '1'/'2'"
     (reset! pform/modeldb
@@ -801,22 +832,24 @@
     (try
       (let [dev {:type "straight" :model "test.straight"
                  :x 0 :y 0 :transform [1 0 0 1 0 0] :name "S1"}
-            port-types (e/device-port-types dev)
+            port-types (device-port-types dev)
             names (set (map :name port-types))]
         (is (= #{"o1" "o2"} names)
             "port names come from model, not builtin"))
       (finally
         (reset! pform/modeldb {})))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-without-model-uses-default-box
   (testing "straight without :model field gets no connection points"
     (reset! pform/modeldb {})
     (let [dev {:type "straight" :x 0 :y 0
                :transform [1 0 0 1 0 0] :name "S1"}
-          port-types (e/device-port-types dev)]
+          port-types (device-port-types dev)]
       (is (empty? port-types)
           "no model → no ports (circuit path with empty modeldb)"))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-model-ports-location-alignment
   (testing "device-locations and device-port-types agree for photonic with model ports"
     (reset! pform/modeldb
@@ -827,8 +860,8 @@
     (try
       (let [dev {:type "straight" :model "test.straight"
                  :x 5 :y 5 :transform [1 0 0 1 0 0] :name "S1"}
-            [loc-endpoints _] (e/device-locations dev)
-            port-types (e/device-port-types dev)
+            [loc-endpoints _] (device-locations dev)
+            port-types (device-port-types dev)
             loc-cells (set loc-endpoints)
             port-cells (set (map (juxt :x :y) port-types))]
         (is (= loc-cells port-cells)
@@ -836,6 +869,7 @@
       (finally
         (reset! pform/modeldb {})))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-model-ports-rotation-alignment
   (testing "photonic with model ports under 90° rotation: :ids and :ports align"
     (reset! pform/modeldb
@@ -846,7 +880,7 @@
     (try
       (let [schem (sch (photonic-dev "S1" "straight" "test.straight" 5 5))
             schem (update schem "S1" assoc :transform [0 1 -1 0 0 0])
-            idx (e/build-point-index schem)
+            idx (point-index schem)
             id-cells (set (for [[pt {:keys [ids]}] idx
                                 :when (contains? ids "S1")]
                             pt))
@@ -862,6 +896,7 @@
 ;; Type-driven port alignment for photonic devices
 ;; ---------------------------------------------------------------------------
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-ring-single-ports-at-bottom
   (testing "ring-single with model ports: both ports at bottom of [1,2] box"
     (reset! pform/modeldb
@@ -872,13 +907,14 @@
     (try
       (let [dev {:type "ring-single" :model "test.ring"
                  :x 0 :y 0 :transform [1 0 0 1 0 0] :name "RS1"}
-            port-types (e/device-port-types dev)
+            port-types (device-port-types dev)
             locs (into {} (map (juxt :name (juxt :x :y))) port-types)]
         (is (= [0 2] (get locs "o1")) "left port at bottom (y=2)")
         (is (= [2 2] (get locs "o2")) "right port at bottom (y=2)"))
       (finally
         (reset! pform/modeldb {})))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-sbend-ports-staggered
   (testing "sbend with model ports: left at top, right at bottom"
     (reset! pform/modeldb
@@ -889,13 +925,14 @@
     (try
       (let [dev {:type "sbend" :model "test.sbend"
                  :x 0 :y 0 :transform [1 0 0 1 0 0] :name "SB1"}
-            port-types (e/device-port-types dev)
+            port-types (device-port-types dev)
             locs (into {} (map (juxt :name (juxt :x :y))) port-types)]
         (is (= [0 1] (get locs "o1")) "left port at top (y=1)")
         (is (= [2 2] (get locs "o2")) "right port at bottom (y=2)"))
       (finally
         (reset! pform/modeldb {})))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-bend-ports-left-top
   (testing "bend with model ports: o1 left, o2 top — markers at the canonical artwork endpoints"
     (reset! pform/modeldb
@@ -906,7 +943,7 @@
     (try
       (let [dev {:type "bend" :model "test.bend"
                  :x 0 :y 0 :transform [1 0 0 1 0 0] :name "B1"}
-            port-types (e/device-port-types dev)
+            port-types (device-port-types dev)
             locs (into {} (map (juxt :name (juxt :x :y))) port-types)]
         (is (= [0 1] (get locs "o1")) "left port at mid-left (0,1)")
         (is (= [1 0] (get locs "o2")) "top port at mid-top (1,0)"))
@@ -919,7 +956,7 @@
     (is (= "matrix(-1, 0, 0, 1, 150, 0)"
            (e/centered-artwork-transform 3 [-1 0 0 1 0 0])))))
 
-;; @tags photonic model ports
+;; @tags photonic model ports, reactive indices, mosaic port exposure
 (deftest artwork-transform-does-not-change-model-port-locations
   (testing "grating-coupler artwork can reflect while its declared ports stay authoritative"
     (reset! pform/modeldb
@@ -932,12 +969,13 @@
       (let [dev {:type "grating-coupler" :model "test.gc"
                  :x 0 :y 0 :transform [1 0 0 1 0 0] :name "GC1"}
             locs (into {} (map (juxt :name (juxt :x :y)))
-                       (e/device-port-types dev))]
+                       (device-port-types dev))]
         (is (= [2 1] (get locs "opt_in")))
         (is (= [0 1] (get locs "opt_out"))))
       (finally
         (reset! pform/modeldb {})))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-mmi-2x2-port-gap
   (testing "mmi-2x2 with model ports: gap preserved between port pairs"
     (reset! pform/modeldb
@@ -950,7 +988,7 @@
     (try
       (let [dev {:type "mmi-2x2" :model "test.mmi"
                  :x 0 :y 0 :transform [1 0 0 1 0 0] :name "M1"}
-            port-types (e/device-port-types dev)
+            port-types (device-port-types dev)
             locs (into {} (map (juxt :name (juxt :x :y))) port-types)]
         (is (= [0 1] (get locs "o1")) "first left at y=1")
         (is (= [0 3] (get locs "o2")) "second left at y=3 (gap at y=2)")
@@ -959,6 +997,7 @@
       (finally
         (reset! pform/modeldb {})))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest photonic-rotation-alignment-ring-single
   (testing "ring-single under 90° rotation: :ids and :ports align"
     (reset! pform/modeldb
@@ -969,7 +1008,7 @@
     (try
       (let [schem (sch (photonic-dev "RS1" "ring-single" "test.ring" 5 5))
             schem (update schem "RS1" assoc :transform [0 1 -1 0 0 0])
-            idx (e/build-point-index schem)
+            idx (point-index schem)
             id-cells (set (for [[pt {:keys [ids]}] idx
                                 :when (contains? ids "RS1")]
                             pt))
@@ -1001,37 +1040,40 @@
 ;; conn port (2,1) at device origin (0,0) to (2,1) under identity and to (0,1)
 ;; under [-1 0 0 1 0 0] (x: 2-1=1, nx = -1·1 = -1, final 0 + -1 + 1 = 0).
 
+;; @tags reactive indices, mosaic port exposure
 (deftest emitter-canonical-port-stays-on-right
   (testing "emitter with identity transform keeps its port on the right"
     (let [dev {:type "port" :variant "emitter"
                :x 0 :y 0 :transform [1 0 0 1 0 0]}
-          ports (e/device-port-types dev)
+          ports (device-port-types dev)
           locs (into {} (map (juxt :name (juxt :x :y))) ports)]
       (is (= [2 1] (get locs "P"))
           "emitter port P at (2,1) — right side, identity transform"))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest detector-canonical-port-is-on-the-right
   (testing "under the identity transform the canonical detector port sits at (2,1), on the right"
     (let [dev {:type "port" :variant "detector"
                :x 0 :y 0 :transform [1 0 0 1 0 0]}
-          ports (e/device-port-types dev)
+          ports (device-port-types dev)
           locs (into {} (map (juxt :name (juxt :x :y))) ports)]
       (is (= [2 1] (get locs "P"))
           "canonical detector port at (2,1) — same orientation as emitter, before the add-time flip"))))
 
+;; @tags reactive indices, mosaic port exposure
 (deftest detector-add-flip-puts-port-on-the-left
   (testing "add-detector's flip-x transform mirrors the canonical port back to the left"
     (let [dev {:type "port" :variant "detector"
                :x 0 :y 0 :transform [-1 0 0 1 0 0]}
-          ports (e/device-port-types dev)
+          ports (device-port-types dev)
           locs (into {} (map (juxt :name (juxt :x :y))) ports)]
       (is (= [0 1] (get locs "P"))
           "detector port P at (0,1) — left side, runtime visual unchanged")))
   (testing "device-locations and device-port-types agree under the flip"
     (let [dev {:type "port" :variant "detector"
                :x 0 :y 0 :transform [-1 0 0 1 0 0]}
-          [loc-endpoints _] (e/device-locations dev)
-          port-types (e/device-port-types dev)
+          [loc-endpoints _] (device-locations dev)
+          port-types (device-port-types dev)
           loc-cells (set loc-endpoints)
           port-cells (set (map (juxt :x :y) port-types))]
       (is (= loc-cells port-cells)
@@ -1076,8 +1118,9 @@
 ;; when untyped/isolated). build-net-annotations writes that onto the port doc
 ;; as :nature, defaulting nil to "photonic" (the nyanlib indexer's fallback).
 
+;; @tags reactive indices
 (defn- net-types [schem]
-  (let [pt-idx   (e/build-point-index schem)
+  (let [pt-idx   (point-index schem)
         networks (e/build-wire-networks schem pt-idx)]
     (e/build-net-type-index networks pt-idx)))
 
@@ -1171,3 +1214,39 @@
     (try
       (is (= 0 (count-airwires (e/schematic-airwires))))
       (finally (reset! pform/schematic {})))))
+
+;; @tags reactive indices
+(deftest point-index-uses-the-explicit-model-snapshot
+  (let [device-id "test$top:C1"
+        sch {device-id {:type "ckt" :model "test.component"
+                        :x 0 :y 0 :transform [1 0 0 1 0 0] :name "C1"}}
+        left-model {"models:test.component"
+                    {:ports [{:name "o1" :side :left :type "photonic"}]}}
+        right-model {"models:test.component"
+                     {:ports [{:name "o1" :side :right :type "photonic"}]}}
+        left-index (e/build-point-index sch left-model)
+        right-index (e/build-point-index sch right-model)]
+    (is (= #{device-id} (get-in left-index [[0 1] :ids])))
+    (is (nil? (get-in left-index [[2 1] :ids])))
+    (is (= #{device-id} (get-in right-index [[2 1] :ids])))
+    (is (nil? (get-in right-index [[0 1] :ids])))))
+
+;; @tags reactive indices
+(deftest reactive-point-index-invalidates-on-modeldb-only-changes
+  (let [device-id "test$top:C1"
+        sch {device-id {:type "ckt" :model "test.component"
+                        :x 0 :y 0 :transform [1 0 0 1 0 0] :name "C1"}}
+        left-model {"models:test.component"
+                    {:ports [{:name "o1" :side :left :type "photonic"}]}}
+        right-model {"models:test.component"
+                     {:ports [{:name "o1" :side :right :type "photonic"}]}}]
+    (reset! pform/schematic sch)
+    (reset! pform/modeldb left-model)
+    (try
+      (is (= #{device-id} (get-in @e/point-index [[0 1] :ids])))
+      (reset! pform/modeldb right-model)
+      (is (= #{device-id} (get-in @e/point-index [[2 1] :ids])))
+      (is (nil? (get-in @e/point-index [[0 1] :ids])))
+      (finally
+        (reset! pform/modeldb {})
+        (reset! pform/schematic {})))))

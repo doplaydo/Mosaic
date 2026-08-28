@@ -215,7 +215,7 @@
 ;; @tags on-demand symbol generation
 (def ^:private ^js host-api nil)
 
-;; @tags on-demand symbol generation, mosaic livewire interop
+;; @tags on-demand symbol generation, mosaic livewire interop, schematic reference context
 (defn- setup-message-router!
   "Install a single message handler that dispatches by type.
    atom-channels: atom of map group -> channel map (read-only channels omit :enqueue-edit!)
@@ -272,6 +272,15 @@
                                 :else "default")]
                 (<p! (.. vscode/commands (executeCommand "vscode.openWith" file-uri editor-id)))))))
 
+        ;; Open an indexed Python factory definition in VS Code.
+        "open-factory-source"
+        (when host-api
+          (go
+            (try
+              (<p! (.openFactorySource host-api (.-factoryFqn message)))
+              (catch :default e
+                (js/console.error "Failed to open factory source:" e)))))
+
         ;; Switch to another custom editor for the same document
         "switchEditor"
         (when (and doc-file-uri document)
@@ -308,19 +317,25 @@
         "send-to-agent"
         (when doc-file-uri
           (let [data (.-data message)
+                document-key (.-documentKey message)
                 label (or (.-label message) "Schematic element")
                 kind (cond
                        (js/Array.isArray data) "schematic-selection"
                        (= "wire" (.-type data)) "schematic-wire"
                        :else "schematic-component")]
-            (.. vscode/commands
-                (executeCommand "gdsfactoryplus.contributeAgentContext"
-                  #js{:kind kind
-                      :source #js{:editor "mosaic"
-                                  :filePath (.-fsPath doc-file-uri)}
-                      :data data
-                      :label label}
-                  #js{:newTab true}))))
+            (go
+              (try
+                (<p! (.. vscode/commands
+                         (executeCommand "gdsfactoryplus.contributeAgentContext"
+                           #js{:kind kind
+                               :source #js{:editor "mosaic"
+                                           :filePath (.-fsPath doc-file-uri)}
+                               :documentKey document-key
+                               :data data
+                               :label label}
+                           #js{:newTab true})))
+                (catch :default e
+                  (js/console.error "Failed to send schematic context to agent:" e))))))
 
         ;; Unknown — ignore
         nil))))

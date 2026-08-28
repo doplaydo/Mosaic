@@ -4,7 +4,7 @@
 
 (ns nyancad.mosaic.editor.port-exposure-test
   (:require [cljs.test :refer [async deftest is]]
-            [cljs.core.async :refer [chan close! go <! timeout]]
+            [cljs.core.async :refer [go <!]]
             [nyancad.mosaic.test-dommatrix]
             [nyancad.mosaic.common :as cm]
             [nyancad.mosaic.editor :as e]
@@ -20,14 +20,9 @@
             {:name "top" :side :top :type "electric"}
             {:name "bottom" :side :bottom :type "photonic"}]}})
 
-(def one-left-port-model
-  {"models:test.component"
-   {:name "Test component"
-    :ports [{:name "left" :side :left :type "photonic"}]}})
-
+;; @tags mosaic port exposure
 (defn- component
-  ([]
-   (component [1 0 0 1 0 0]))
+  ([] (component [1 0 0 1 0 0]))
   ([transform]
    {:type "ckt"
     :model "test.component"
@@ -36,175 +31,237 @@
     :transform transform
     :name "X1"}))
 
-(defn- with-model [model f]
-  (reset! pform/modeldb model)
-  (try
-    (f)
-    (finally
-      (reset! pform/modeldb {})
-      (reset! pform/schematic {}))))
-
+;; @tags mosaic port exposure
 (defn- docs-of-type [docs type]
   (into {} (filter (fn [[_ doc]] (= type (:type doc))) docs)))
 
-(deftest connection-semantics-use-physical-endpoints
-  (with-model
-    four-port-model
-    (fn []
-      (let [device-id (str group-prefix "X1")
-            sch {device-id (component)
-                 ;; Left source port (10,11): a wire endpoint connects it.
-                 (str group-prefix "W9")
-                 {:type "wire" :x 10 :y 11 :rx -2 :ry 0 :variant "d"}
-                 ;; Right source port (12,11): a wire body crosses it, which
-                 ;; must not connect it.
-                 (str group-prefix "W10")
-                 {:type "wire" :x 11 :y 11 :rx 2 :ry 0 :variant "d"}
-                 ;; Top source port (11,10): a text label is non-physical.
-                 (str group-prefix "P9")
-                 {:type "port" :variant "text" :x 11 :y 10
-                  :transform cm/IV :name "label"}
-                 ;; Bottom source port (11,12): a plain marker connects it.
-                 (str group-prefix "P10")
-                 {:type "port" :x 11 :y 12 :transform cm/IV :name "external"}}
-            names (set (map :name (e/unconnected-device-ports
-                                   sch (e/build-point-index sch) device-id)))
-            component-sch
-            {device-id (component)
-             (str group-prefix "X2")
-             (assoc (component) :x 8 :name "X2")}
-            component-names
-            (set (map :name (e/unconnected-device-ports
-                             component-sch
-                             (e/build-point-index component-sch)
-                             device-id)))]
-        (is (= #{"top" "right"} names))
-        (is (= #{"top" "right" "bottom"} component-names)
-            "another component port connects at the same physical endpoint")))))
+;; @tags mosaic port exposure
+(deftest exposure-uses-nc-endpoint-occupancy
+  (let [device-id (str group-prefix "X1")
+        body-wire-id (str group-prefix "W2")
+        sch {device-id (component)
+             ;; Wire endpoint suppresses the left port.
+             (str group-prefix "W1")
+             {:type "wire" :x 10 :y 11 :rx -2 :ry 0 :variant "d"}
+             ;; Wire body crosses the right port without suppressing it.
+             body-wire-id
+             {:type "wire" :x 12 :y 10 :rx 0 :ry 2 :variant "d"}
+             ;; Text-only marker does not suppress the top port.
+             (str group-prefix "label")
+             {:type "port" :variant "text" :x 11 :y 10
+              :transform cm/IV :name "label"}
+             ;; Structural marker suppresses the bottom port.
+             (str group-prefix "outer")
+             {:type "port" :x 11 :y 12 :transform cm/IV :name "outer"}}
+        idx (e/build-point-index sch four-port-model)
+        ports (e/exposable-device-ports four-port-model sch idx device-id)
+        docs (e/build-port-exposure-docs four-port-model sch idx device-id)
+        with-docs (merge sch docs)
+        next-idx (e/build-point-index with-docs four-port-model)]
+    (is (= #{"right" "top"} (set (map :name ports))))
+    (is (= #{[12 11] [11 10]}
+           (set (map (juxt :x :y) (vals docs)))))
+    (is (= #{[12 11]} (get (e/build-wire-split-index with-docs next-idx)
+                           body-wire-id))
+        "the normal post-action split phase connects a crossing wire")
+    (is (empty? (e/build-port-exposure-docs
+                 four-port-model with-docs next-idx device-id))
+        "the generated endpoint markers make a repeated invocation a no-op")))
 
-(deftest one-click-builds-all-markers-and-straight-wires
-  (with-model
-    four-port-model
-    (fn []
-      (let [device-id (str group-prefix "X1")
-            sch {device-id (component)
-                 (str group-prefix "P1")
-                 {:type "port" :x 30 :y 30 :transform cm/IV :name "P1"}
-                 (str group-prefix "W1")
-                 {:type "wire" :x 30 :y 31 :rx 2 :ry 0 :variant "d" :name "W1"}}
-            docs (e/build-port-exposure-docs sch (e/build-point-index sch) device-id)
-            ports (docs-of-type docs "port")
-            wires (docs-of-type docs "wire")]
-        (is (= #{(str group-prefix "P2") (str group-prefix "P3")
-                 (str group-prefix "P4") (str group-prefix "P5")}
-               (set (keys ports)))
-            "all four free ports use collision-free names")
-        (is (= #{(str group-prefix "W2") (str group-prefix "W3")
-                 (str group-prefix "W4") (str group-prefix "W5")}
-               (set (keys wires)))
-            "every clear corridor gets one collision-free wire")
-        (is (= #{[11 8] [8 11] [14 11] [11 14]}
-               (set (map (juxt :x :y) (vals ports))))
-            "markers land exactly two cells outward")
-        (is (= #{[0 -2] [-2 0] [2 0] [0 2]}
-               (set (map (juxt :rx :ry) (vals wires))))
-            "wires are straight two-cell segments")
-        (is (= #{cm/IV [-1 0 0 1 0 0]
-                 [0 1 -1 0 0 0] [0 -1 1 0 0 0]}
-               (set (map :transform (vals ports))))
-            "markers face outward on every cardinal side")
-        (is (every? #(= "d" (:variant %)) (vals wires)))))))
+;; @tags mosaic port exposure
+(deftest exposure-builds-co-located-directional-markers-with-global-names
+  (let [device-id (str group-prefix "X1")
+        sch {device-id (component)
+             (str group-prefix "P1")
+             {:type "port" :x 30 :y 30 :transform cm/IV :name "existing"}
+             (str group-prefix "R1")
+             {:type "resistor" :x 40 :y 40 :transform cm/IV :name "P2"}}
+        idx (e/build-point-index sch four-port-model)
+        docs (e/build-port-exposure-docs four-port-model sch idx device-id)]
+    (is (= #{(str group-prefix "P3") (str group-prefix "P4")
+             (str group-prefix "P5") (str group-prefix "P6")}
+           (set (keys docs))))
+    (is (= #{"P3" "P4" "P5" "P6"} (set (map :name (vals docs)))))
+    (is (= #{[10 11] [12 11] [11 10] [11 12]}
+           (set (map (juxt :x :y) (vals docs)))))
+    (is (= #{cm/IV [-1 0 0 1 0 0]
+             [0 1 -1 0 0 0] [0 -1 1 0 0 0]}
+           (set (map :transform (vals docs)))))
+    (is (empty? (docs-of-type docs "wire")))))
 
-(deftest transforms-control-outward-placement
-  (doseq [[model transform expected-ports expected-wires expected-markers]
-          [[one-left-port-model [1 0 0 1 0 0]
-            #{[8 11]} #{[10 11 -2 0]} #{cm/IV}]
-           [one-left-port-model [0 1 -1 0 0 0]
-            #{[11 8]} #{[11 10 0 -2]} #{[0 1 -1 0 0 0]}]
-           [one-left-port-model [-1 0 0 1 0 0]
-            #{[14 11]} #{[12 11 2 0]} #{[-1 0 0 1 0 0]}]]]
-    (with-model
-      model
-      (fn []
-        (let [device-id (str group-prefix "X1")
-              sch {device-id (component transform)}
-              docs (e/build-port-exposure-docs
-                    sch (e/build-point-index sch) device-id)
-              ports (vals (docs-of-type docs "port"))
-              wires (vals (docs-of-type docs "wire"))]
-          (is (= expected-ports (set (map (juxt :x :y) ports)))
-              (str transform))
-          (is (= expected-wires (set (map (juxt :x :y :rx :ry) wires)))
-              (str transform))
-          (is (= expected-markers (set (map :transform ports)))
-              (str transform)))))))
+;; @tags mosaic port exposure
+(deftest exposure-is-capability-based-and-excludes-port-documents
+  (let [worker-model {"models:test.worker"
+                      {:ports [{:name "o1" :side :left :type "photonic"}]}}
+        worker-id (str group-prefix "C1")
+        worker {worker-id {:type "worker-backed-type"
+                           :model "test.worker"
+                           :x 0 :y 0 :transform cm/IV :name "C1"}}
+        worker-idx (e/build-point-index worker worker-model)
+        resistor-id (str group-prefix "R1")
+        resistor {resistor-id {:type "resistor" :x 0 :y 0
+                               :transform cm/IV :name "R1"}}
+        resistor-idx (e/build-point-index resistor {})
+        emitter-id (str group-prefix "source")
+        emitter {emitter-id {:type "port" :variant "emitter" :x 0 :y 0
+                             :transform cm/IV :name "source"}}
+        emitter-idx (e/build-point-index emitter {})
+        missing-id (str group-prefix "missing")
+        missing {missing-id {:type "worker-backed-type" :model "missing"
+                             :x 0 :y 0 :transform cm/IV :name "missing"}}
+        missing-idx (e/build-point-index missing {})]
+    (is (= {:disabled? false}
+           (e/port-exposure-state worker-model worker worker-idx worker-id)))
+    (is (= {:disabled? false}
+           (e/port-exposure-state {} resistor resistor-idx resistor-id)))
+    (is (nil? (e/port-exposure-state {} emitter emitter-idx emitter-id)))
+    (is (nil? (e/port-exposure-state {} missing missing-idx missing-id)))))
 
-(deftest occupied-corridor-co-locates-marker-without-wire
-  (with-model
-    one-left-port-model
-    (fn []
-      (let [device-id (str group-prefix "X1")
-            sch {device-id (component)
-                 ;; Vertical body occupies the first outward corridor cell
-                 ;; [9,11] without ending on the source at [10,11].
-                 (str group-prefix "W9")
-                 {:type "wire" :x 9 :y 10 :rx 0 :ry 2 :variant "d" :name "blocker"}}
-            docs (e/build-port-exposure-docs sch (e/build-point-index sch) device-id)
-            ports (docs-of-type docs "port")
-            wires (docs-of-type docs "wire")]
-        (is (= [10 11] ((juxt :x :y) (first (vals ports))))
-            "occupied corridor falls back to source-cell co-location")
-        (is (empty? wires) "fallback creates no wire")))))
+;; @tags mosaic port exposure
+(deftest builtin-connection-data-declares-canonical-sides
+  (is (= [{:name "A" :x 0 :y 0 :type "electric" :side :top}
+          {:name "B" :x 2 :y 0 :type "electric" :side :top}
+          {:name "C" :x 1 :y 1 :type "electric" :side :right}
+          {:name "D" :x 0 :y 2 :type "electric" :side :bottom}
+          {:name "E" :x 2 :y 2 :type "electric" :side :bottom}]
+         (vec (cm/ascii-patern ["A B" " C " "D E"])))
+      "vertical edges win at corners and an interior port defaults right")
+  (is (= 3 (cm/pattern-size (cm/ascii-patern ["A B" " C " "D E"]))))
+  (doseq [[type variant expected]
+          [["nmos" nil
+            [{:name "D" :x 1 :y 0 :type "electric" :side :top}
+             {:name "G" :x 0 :y 1 :type "electric" :side :left}
+             {:name "B" :x 1 :y 1 :type "electric" :side :right}
+             {:name "S" :x 1 :y 2 :type "electric" :side :bottom}]]
+           ["npn" nil
+            [{:name "C" :x 1 :y 0 :type "electric" :side :top}
+             {:name "B" :x 0 :y 1 :type "electric" :side :left}
+             {:name "E" :x 1 :y 2 :type "electric" :side :bottom}]]
+           ["resistor" nil
+            [{:name "P" :x 1 :y 0 :type "electric" :side :top}
+             {:name "N" :x 1 :y 2 :type "electric" :side :bottom}]]
+           ["led" nil
+            [{:name "P" :x 1 :y 0 :type "electric" :side :top}
+             {:name "O" :x 2 :y 1 :type "photonic" :side :right}
+             {:name "N" :x 1 :y 2 :type "electric" :side :bottom}]]
+           ["photodiode" nil
+            [{:name "P" :x 1 :y 0 :type "electric" :side :top}
+             {:name "O" :x 2 :y 1 :type "photonic" :side :right}
+             {:name "N" :x 1 :y 2 :type "electric" :side :bottom}]]
+           ["modulator" nil
+            [{:name "P" :x 1 :y 0 :type "electric" :side :top}
+             {:name "1" :x 0 :y 1 :type "photonic" :side :left}
+             {:name "2" :x 2 :y 1 :type "photonic" :side :right}
+             {:name "N" :x 1 :y 2 :type "electric" :side :bottom}]]
+           ["port" "emitter"
+            [{:name "P" :x 2 :y 1 :type "photonic" :side :right}]]
+           ["port" "detector"
+            [{:name "P" :x 2 :y 1 :type "photonic" :side :right}]]
+           ["port" ::e/default
+            [{:name "P" :x 0 :y 0 :side :right}]]]]
+    (let [conn (get-in e/models [type ::e/conn])]
+      (is (= expected (vec (if variant (get conn variant) conn))) type))))
 
-(deftest toolbar-action-state
-  (with-model
-    one-left-port-model
-    (fn []
-      (let [device-id (str group-prefix "X1")
-            initial {device-id (component)}]
-        (is (= {:disabled? false}
-               (e/port-exposure-state initial (e/build-point-index initial) device-id)))
-        (is (nil? (e/port-exposure-state
-                   {(str group-prefix "R1") {:type "resistor" :model "test.component"}}
-                   {}
-                   (str group-prefix "R1"))))
-        (let [docs (e/build-port-exposure-docs
-                    initial (e/build-point-index initial) device-id)]
-          (is (= {:disabled? true}
-                 (e/port-exposure-state (merge initial docs) (e/build-point-index (merge initial docs)) device-id))))))))
+;; @tags mosaic port exposure
+(deftest canonical-directions-preserve-legacy-port-map-shapes
+  (let [resistor {:type "resistor" :x 0 :y 0 :transform cm/IV}
+        legacy-static (first (e/device-port-types {} resistor))
+        mosfet-id (str group-prefix "M1")
+        mosfet {mosfet-id {:type "nmos" :x 0 :y 0
+                           :transform cm/IV :name "M1"}}
+        mosfet-idx (e/build-point-index mosfet {})
+        bulk-marker (some #(when (= [1 1] ((juxt :x :y) %)) %)
+                          (vals (e/build-port-exposure-docs
+                                 {} mosfet mosfet-idx mosfet-id)))
+        rotated-model {"models:test.left"
+                       {:ports [{:name "o1" :side :left :type "photonic"}]}}
+        rotated {:type "ckt" :model "test.left" :x 0 :y 0
+                 :transform [0 1 -1 0 0 0]}
+        rotated-id (str group-prefix "X1")
+        rotated-sch {rotated-id rotated}
+        rotated-idx (e/build-point-index rotated-sch rotated-model)
+        rotated-marker (first (vals (e/build-port-exposure-docs
+                                     rotated-model rotated-sch rotated-idx rotated-id)))
+        legacy-model (first (e/device-port-types rotated-model rotated))]
+    (is (not (contains? legacy-static :side)))
+    (is (not (contains? legacy-static :direction)))
+    (is (= [-1 0 0 1 0 0] (:transform bulk-marker)))
+    (is (= [0 1 -1 0 0 0] (:transform rotated-marker)))
+    (is (= :left (:side legacy-model)))
+    (is (not (contains? legacy-model :direction)))))
 
-(deftest action-settles-adds-once-and-checkpoints-once
+;; @tags mosaic port exposure
+(deftest direction-uses-the-linear-transform-and-vertical-ties
+  (let [models {"models:test.left"
+                {:ports [{:name "o1" :side :left :type "photonic"}]}}
+        device-id (str group-prefix "X1")]
+    (doseq [[transform expected]
+            [[cm/IV cm/IV]
+             [[-1 0 0 1 0 0] [-1 0 0 1 0 0]]
+             [[0 1 -1 0 0 0] [0 1 -1 0 0 0]]
+             [[0 -1 1 0 0 0] [0 -1 1 0 0 0]]
+             [[1 0.2 2 1 17 23] cm/IV]
+             [[1 1 0 1 17 23] [0 1 -1 0 0 0]]]]
+      (let [sch {device-id {:type "ckt" :model "test.left" :x 0 :y 0
+                            :transform transform :name "X1"}}
+            idx (e/build-point-index sch models)
+            marker (first (vals (e/build-port-exposure-docs
+                                 models sch idx device-id)))]
+        (is (= expected (:transform marker)) (str transform))))))
+
+;; @tags mosaic port exposure
+(deftest generated-markers-receive-network-annotations
+  (let [device-id (str group-prefix "X1")
+        sch {device-id (component)}
+        idx (e/build-point-index sch four-port-model)
+        docs (e/build-port-exposure-docs four-port-model sch idx device-id)
+        with-docs (merge sch docs)
+        next-idx (e/build-point-index with-docs four-port-model)
+        networks (e/build-wire-networks with-docs next-idx)
+        nets (e/build-netlist networks)
+        net-types (e/build-net-type-index networks next-idx)
+        updates (e/build-net-annotations with-docs nets net-types)
+        expected-natures {cm/IV "photonic"
+                          [-1 0 0 1 0 0] "electric"
+                          [0 1 -1 0 0 0] "electric"
+                          [0 -1 1 0 0 0] "photonic"}]
+    (doseq [[id doc] docs]
+      (is (string? (get-in updates [id :nets :P])))
+      (is (= (get expected-natures (:transform doc))
+             (get-in updates [id :nature]))))))
+
+;; @tags mosaic port exposure
+(deftest action-writes-one-batch-supports-undo-redo-and-skips-an-empty-repeat
   (async done
     (let [device-id (str group-prefix "X1")
-          initial {device-id (component)}
-          first-write (chan)
-          second-write (chan)
-          done-calls (atom 0)
-          checkpoints (atom 0)
-          original-done? pform/done?
-          original-post-action! e/post-action!]
-      (reset! pform/modeldb one-left-port-model)
+          wire-id (str group-prefix "W1")
+          initial {device-id (component)
+                   wire-id {:type "wire" :x 12 :y 10 :rx 0 :ry 2
+                            :variant "d" :name "crossing"}}]
+      (reset! pform/modeldb four-port-model)
       (reset! pform/schematic initial)
-      (set! pform/done? (fn [_] (if (= 1 (swap! done-calls inc))
-                                  first-write second-write)))
-      (set! e/post-action! (fn [] (swap! checkpoints inc) (go nil)))
-      (let [result (e/expose-unconnected-ports! device-id)]
-        (go
-          (try
-            (close! first-write)
-            (<! (timeout 0))
-            (swap! pform/schematic assoc (str group-prefix "P1")
-                   {:type "port" :x 30 :y 30 :transform cm/IV :name "P1"})
-            (close! second-write)
-            (let [docs (<! result)]
-              (is (= #{(str group-prefix "P2") (str group-prefix "W1")}
-                     (set (keys docs))))
-              (is (= 4 (count @pform/schematic)))
-              (is (nil? (<! (e/expose-unconnected-ports! device-id))))
-              (is (= 1 @checkpoints)))
-            (finally
-              (set! pform/done? original-done?)
-              (set! e/post-action! original-post-action!)
-              (reset! pform/modeldb {})
-              (reset! pform/schematic {})
-              (done))))))))
+      (reset! e/undotree @(cm/newundotree))
+      (cm/newdo e/undotree initial)
+      (go
+        (try
+          (let [docs (<! (e/expose-ports! device-id))]
+            (is (= 4 (count docs)))
+            (is (= 2 (count (docs-of-type @pform/schematic "wire")))
+                "the crossing wire is split by the real post-action lifecycle")
+            (is (every? #(string? (get-in % [:nets :P]))
+                        (vals (docs-of-type @pform/schematic "port"))))
+            (let [undo-after-first (pr-str @e/undotree)]
+              (is (nil? (<! (e/expose-ports! device-id))))
+              (is (= undo-after-first (pr-str @e/undotree))
+                  "an empty repeat adds no undo checkpoint"))
+            (<! (e/undo-schematic))
+            (is (= initial @pform/schematic))
+            (<! (e/redo-schematic))
+            (is (= 2 (count (docs-of-type @pform/schematic "wire"))))
+            (is (every? #(string? (get-in % [:nets :P]))
+                        (vals (docs-of-type @pform/schematic "port")))
+                "redo restores the completed split and annotation state"))
+          (finally
+            (reset! pform/modeldb {})
+            (reset! pform/schematic {})
+            (done)))))))

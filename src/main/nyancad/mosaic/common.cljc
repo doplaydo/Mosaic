@@ -533,13 +533,25 @@
   (swap! ut #(if (undo-state (zip/down %)) (zip/down %) %))
   (undo-state @ut))
 
+;; @tags mosaic port exposure, photonic model ports
 (defn ascii-patern
   ([pattern] (ascii-patern "electric" pattern))
   ([port-type pattern]
-   (for [[y s] (map-indexed vector pattern)
-         [x c] (map-indexed vector s)
-         :when (not= c " ")]
-     {:name (str c) :x x :y y :type port-type})))
+   (let [last-x (dec (apply max 0 (map count pattern)))
+         last-y (dec (count pattern))]
+     (for [[y s] (map-indexed vector pattern)
+           [x c] (map-indexed vector s)
+           :when (not= c " ")]
+       {:name (str c)
+        :x x
+        :y y
+        :type port-type
+        :side (cond
+                (= y 0) :top
+                (= y last-y) :bottom
+                (= x 0) :left
+                (= x last-x) :right
+                :else :right)}))))
 
 (def active-bg [1 1])
 

@@ -141,9 +141,10 @@
            #(if eyesore? "eyesore"
                 (if (dark-mode? ui) "light" "dark")))))
 
+;; @tags schematic reference context
 (defn send-to-agent
   "No-op on web — agent integration is VS Code only."
-  [_data _label]
+  [_document-key _data _label]
   nil)
 
 (defn secondary-menu-items
@@ -189,7 +190,16 @@
 
 ;; --- Functions ---
 
-(defn open-schematic
+;; @tags property editing, model identity
+(defn editable-model?
+  "True when the web model uses the original schematic-backed edit flow."
+  [model-id model-def]
+  (boolean
+   (and (seq model-id)
+        (not (cm/has-code-models? model-def)))))
+
+;; @tags property editing, model identity
+(defn edit-model
   "Navigate to a subcircuit's schematic in a new browser tab."
   [model-id]
   (let [url (str "?" (.toString (js/URLSearchParams. #js{:schem model-id})))]
