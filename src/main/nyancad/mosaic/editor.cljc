@@ -795,13 +795,29 @@
               (into [:<>] artwork)]]
             artwork))))
 
-;; @tags photonic model ports
-(defn circuit-shape [k v]
-  (draw-background (or (device-dims v) [1 1]) k v))
+;; @tags mosaic die-component
+(def ^:private flip-side
+  {:left :right :right :left :top :bottom :bottom :top
+   "left" "right" "right" "left" "top" "bottom" "bottom" "top"})
 
-;; @tags photonic model ports
+;; @tags mosaic die-component
+(defn- invert-port-sides [ports]
+  (mapv #(update % :side flip-side) ports))
+
+;; @tags mosaic die-component
+(defn- die-component? [v]
+  (:die-component (get @modeldb (cm/model-key (:model v)))))
+
+;; @tags photonic model ports, mosaic die-component
+(defn circuit-shape [k v]
+  (when-not (die-component? v)
+    (draw-background (or (device-dims v) [1 1]) k v)))
+
+;; @tags photonic model ports, mosaic die-component
 (defn circuit-conn [k v]
-  (let [ports (get-in @modeldb [(cm/model-key (:model v)) :ports])
+  (let [model-def (get @modeldb (cm/model-key (:model v)))
+        raw-ports (:ports model-def)
+        ports (if (:die-component model-def) (invert-port-sides raw-ports) raw-ports)
         locs (if (seq ports) (cm/port-locations ports (:type v)) [])
         size (device-tile-size v)]
     [device size k v
@@ -1019,10 +1035,37 @@
         :transform (counter-rotate v cx cy)}
        (if has-model? model-name "?")]]]))
 
+;; @tags mosaic die-component
+(defn circuit-sym-die [k v]
+  (let [model (:model v)
+        model-def (get @modeldb (cm/model-key model))
+        raw-ports (:ports model-def)
+        ports (invert-port-sides raw-ports)
+        has-ports? (seq ports)
+        [width height] (if has-ports? (cm/port-perimeter ports (:type v)) [1 1])
+        all-locs (cm/port-locations ports (:type v))
+        by-side (group-by :side all-locs)
+        size (+ 2 (max width height))]
+    [device size k v
+     [:<>
+      (circuit-designator v size width height)
+      (when has-ports?
+        [:<>
+         (for [{:keys [y name]} (:left by-side)]
+           (port-label v (* 1.15 grid-size) (* (+ y 0.5) grid-size) "start" "middle" name))
+         (for [{:keys [y name]} (:right by-side)]
+           (port-label v (* (+ width 0.85) grid-size) (* (+ y 0.5) grid-size) "end" "middle" name))
+         (for [{:keys [x name]} (:top by-side)]
+           (port-label v (* (+ x 0.5) grid-size) (* 1.3 grid-size) "middle" "hanging" name))
+         (for [{:keys [x name]} (:bottom by-side)]
+           (port-label v (* (+ x 0.5) grid-size) (* (+ height 0.7) grid-size) "middle" "baseline" name))])]]))
+
 (defn circuit-sym [k v]
   (case (:type v)
     "amp" (circuit-sym-amplifier k v)
-    (circuit-sym-box k v)))
+    (if (die-component? v)
+      (circuit-sym-die k v)
+      (circuit-sym-box k v))))
 
 (def tran-field
   {:name "tran" :tooltip "Transient waveform" :type :tagged-enum
@@ -1385,7 +1428,8 @@
                (+ 2 (max w h))
                (cm/pattern-size conn))])
           (let [mod (get models-snapshot (cm/model-key model))
-                ports (:ports mod)
+                raw-ports (:ports mod)
+                ports (if (:die-component mod) (invert-port-sides raw-ports) raw-ports)
                 conn (if ports (cm/port-locations ports cell) [])
                 [w h] (if ports (cm/port-perimeter ports cell) [1 1])]
             [conn (+ 2 (max w h))]))]
