@@ -804,20 +804,15 @@
 (defn- invert-port-sides [ports]
   (mapv #(update % :side flip-side) ports))
 
-;; @tags mosaic die-component
-(defn- die-component? [v]
-  (:die-component (get @modeldb (cm/model-key (:model v)))))
-
 ;; @tags photonic model ports, mosaic die-component
 (defn circuit-shape [k v]
-  (when-not (die-component? v)
+  (when-not (= "die" (:type v))
     (draw-background (or (device-dims v) [1 1]) k v)))
 
 ;; @tags photonic model ports, mosaic die-component
 (defn circuit-conn [k v]
-  (let [model-def (get @modeldb (cm/model-key (:model v)))
-        raw-ports (:ports model-def)
-        ports (if (:die-component model-def) (invert-port-sides raw-ports) raw-ports)
+  (let [raw-ports (:ports (get @modeldb (cm/model-key (:model v))))
+        ports (if (= "die" (:type v)) (invert-port-sides raw-ports) raw-ports)
         locs (if (seq ports) (cm/port-locations ports (:type v)) [])
         size (device-tile-size v)]
     [device size k v
@@ -1063,9 +1058,8 @@
 (defn circuit-sym [k v]
   (case (:type v)
     "amp" (circuit-sym-amplifier k v)
-    (if (die-component? v)
-      (circuit-sym-die k v)
-      (circuit-sym-box k v))))
+    "die" (circuit-sym-die k v)
+    (circuit-sym-box k v)))
 
 (def tran-field
   {:name "tran" :tooltip "Transient waveform" :type :tagged-enum
@@ -1427,9 +1421,8 @@
              (if (and (number? w) (number? h))
                (+ 2 (max w h))
                (cm/pattern-size conn))])
-          (let [mod (get models-snapshot (cm/model-key model))
-                raw-ports (:ports mod)
-                ports (if (:die-component mod) (invert-port-sides raw-ports) raw-ports)
+          (let [raw-ports (:ports (get models-snapshot (cm/model-key model)))
+                ports (if (= "die" cell) (invert-port-sides raw-ports) raw-ports)
                 conn (if ports (cm/port-locations ports cell) [])
                 [w h] (if ports (cm/port-perimeter ports cell) [1 1])]
             [conn (+ 2 (max w h))]))]
