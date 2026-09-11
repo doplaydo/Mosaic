@@ -3,7 +3,7 @@
 ; SPDX-License-Identifier: MPL-2.0
 
 (ns nyancad.mosaic.editor.port-exposure-test
-  (:require [cljs.test :refer [async deftest is]]
+  (:require [cljs.test :refer [async deftest is testing]]
             [cljs.core.async :refer [go <!]]
             [nyancad.mosaic.test-dommatrix]
             [nyancad.mosaic.common :as cm]
@@ -161,6 +161,33 @@
             [{:name "P" :x 0 :y 0 :side :right}]]]]
     (let [conn (get-in e/models [type ::e/conn])]
       (is (= expected (vec (if variant (get conn variant) conn))) type))))
+
+;; @tags mosaic die-component, mosaic port exposure
+(deftest die-ports-resolve-as-declared
+  ;; cspdk-style die ports: sides are the die edge each port sits on (the
+  ;; opposite of the inward GDS orientation), same-side ports clockwise, so
+  ;; the declared list index 0 is the bottom-most port of a vertical side.
+  (let [models {"models:pk.die"
+                {:name "die" :type "die"
+                 :ports [{:name "o24" :side "left" :type "photonic"}
+                         {:name "o13" :side "left" :type "photonic"}
+                         {:name "e31" :side "bottom" :type "electric"}
+                         {:name "e1" :side "bottom" :type "electric"}]}}
+        dev {:type "die" :model "pk.die" :x 10 :y 10 :transform cm/IV :name "X1"}
+        ports (e/device-port-types models dev)
+        by-name (into {} (map (juxt :name identity)) ports)]
+    (testing "a die renders its declared model sides without type-specific inversion"
+      (is (= :left (:side (by-name "o24"))))
+      (is (= :left (:side (by-name "o13"))))
+      (is (= :bottom (:side (by-name "e31"))))
+      (is (= :bottom (:side (by-name "e1")))))
+    (testing "declared clockwise order maps to Mosaic's index-0-first slots"
+      (let [by-side (group-by :side ports)]
+        (is (= ["o24" "o13"] (mapv :name (:left by-side))))
+        (is (= ["e31" "e1"] (mapv :name (:bottom by-side))))
+        (is (= [11 12] (mapv :y (:left by-side)))
+            "the first declared port of a side lands on the top slot (smallest y,
+             here 10 device y + 1/2 relative)")))))
 
 ;; @tags mosaic port exposure
 (deftest canonical-directions-preserve-legacy-port-map-shapes

@@ -213,10 +213,13 @@
 (deftest staged-type-test
   (reset! pform/modeldb
           {"models:pk.bend_euler" {:name "bend_euler" :type "bend"}
+           "models:pk.die" {:name "die" :type "die"}
            "models:pk.cell_x" {:name "cell_x"}
            "models:pk.weird" {:name "weird" :type "not-a-device-type"}})
   (testing "a model picked from the unfiltered library stages as its own type"
     (is (= "bend" (e/staged-type "ckt" "models:pk.bend_euler"))))
+  (testing "a die-typed entry stages as a die, not the button's ckt"
+    (is (= "die" (e/staged-type "ckt" "models:pk.die"))))
   (testing "an untyped entry falls back to the button's type"
     (is (= "ckt" (e/staged-type "ckt" "models:pk.cell_x"))))
   (testing "so does a type this build does not know, and a missing entry"
