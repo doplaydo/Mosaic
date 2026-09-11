@@ -367,7 +367,7 @@
 ; Device type specs
 (def device-types #{"pmos" "nmos" "npn" "pnp" "resistor" "capacitor"
                     "inductor" "vsource" "isource" "diode" "led" "photodiode" "modulator"
-                    "ckt" "amp"
+                    "ckt" "amp" "die"
                     "straight" "bend" "sbend" "taper" "transition"
                     "terminator" "crossing" "ring-single" "ring-double" "spiral"
                     "splitter-1x2" "coupler" "coupler-ring"
