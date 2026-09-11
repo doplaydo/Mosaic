@@ -795,15 +795,6 @@
               (into [:<>] artwork)]]
             artwork))))
 
-;; @tags mosaic die-component
-(def ^:private flip-side
-  {:left :right :right :left :top :bottom :bottom :top
-   "left" "right" "right" "left" "top" "bottom" "bottom" "top"})
-
-;; @tags mosaic die-component
-(defn- invert-port-sides [ports]
-  (mapv #(update % :side flip-side) ports))
-
 ;; @tags photonic model ports, mosaic die-component
 (defn circuit-shape [k v]
   (when-not (= "die" (:type v))
@@ -811,8 +802,7 @@
 
 ;; @tags photonic model ports, mosaic die-component
 (defn circuit-conn [k v]
-  (let [raw-ports (:ports (get @modeldb (cm/model-key (:model v))))
-        ports (if (= "die" (:type v)) (invert-port-sides raw-ports) raw-ports)
+  (let [ports (:ports (get @modeldb (cm/model-key (:model v))))
         locs (if (seq ports) (cm/port-locations ports (:type v)) [])
         size (device-tile-size v)]
     [device size k v
@@ -1034,8 +1024,7 @@
 (defn circuit-sym-die [k v]
   (let [model (:model v)
         model-def (get @modeldb (cm/model-key model))
-        raw-ports (:ports model-def)
-        ports (invert-port-sides raw-ports)
+        ports (:ports model-def)
         has-ports? (seq ports)
         [width height] (if has-ports? (cm/port-perimeter ports (:type v)) [1 1])
         all-locs (cm/port-locations ports (:type v))
@@ -1421,8 +1410,7 @@
              (if (and (number? w) (number? h))
                (+ 2 (max w h))
                (cm/pattern-size conn))])
-          (let [raw-ports (:ports (get models-snapshot (cm/model-key model)))
-                ports (if (= "die" cell) (invert-port-sides raw-ports) raw-ports)
+          (let [ports (:ports (get models-snapshot (cm/model-key model)))
                 conn (if ports (cm/port-locations ports cell) [])
                 [w h] (if ports (cm/port-perimeter ports cell) [1 1])]
             [conn (+ 2 (max w h))]))]
